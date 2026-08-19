@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenv / uv (the lockfile IS committed; the venv is not)
+.venv/
+
+# Environment secrets
+.env
+
+# Local database — the pantry is machine-local state; never commit it
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+
+# OS
+.DS_Store
