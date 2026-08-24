@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 from sqlmodel import Field, SQLModel
 
-from pantry_pilot.models.enums import BaseUnit, Category, StockStatus, TrackingMode
+from pantry_pilot.models.enums import BaseUnit, Category, StockStatus, TrackingMode, TxnReason
 
 
 class Ingredient(SQLModel, table=True):
@@ -21,3 +21,14 @@ class Ingredient(SQLModel, table=True):
     archived_at: datetime | None = None  # when it was archived (if ever)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))  # created (UTC)
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))  # updated (UTC)
+
+
+class PantryTransaction(SQLModel, table=True):
+    """A pantry change. table=True makes this a real DB table (one row per change)."""
+
+    id: int | None = Field(default=None, primary_key=True)  # unique row id; the DB assigns it
+    ingredient_id: int = Field(foreign_key="ingredient.id", index=True)  # which ingredient (FK)
+    reason: TxnReason  # INITIAL / RESTOCK / CONSUME / DISCARD / ADJUST
+    change_amount: int  # signed delta: +restock / -consume (int = exact)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))  # created (UTC)
+    note: str | None = None  # optional free-text note about this change
