@@ -20,3 +20,7 @@ data/*.db-shm
 
 # OS
 .DS_Store
+
+# Learning scratchpad (experiments, never committed)
+scratch.py
+scratch/
