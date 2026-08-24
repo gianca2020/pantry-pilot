@@ -1,7 +1,7 @@
-from sqlmodel import Session  # the "cart" used to read/write the database
+from sqlmodel import Session, select  # the "cart" + the query builder
 
-from pantry_pilot.models.enums import BaseUnit, Category, StockStatus, TrackingMode
-from pantry_pilot.models.tables import Ingredient  # the table (row) we create here
+from pantry_pilot.models.enums import BaseUnit, Category, StockStatus, TrackingMode, TxnReason
+from pantry_pilot.models.tables import Ingredient, PantryTransaction
 
 
 def add_ingredient(
@@ -35,3 +35,37 @@ def add_ingredient(
     session.commit()  # check out: write it to the database
     session.refresh(ingredient)  # reload so the DB-assigned id is filled in
     return ingredient
+
+
+def record_transaction(
+    session: Session,
+    ingredient: Ingredient,  # the whole object, so we can check its mode AND update its on_hand
+    change_amount: int,  # signed: +restock / -consume
+    reason: TxnReason,
+    note: str | None = None,
+) -> PantryTransaction:
+    """Record a change in the ledger, then recompute the ingredient's on_hand from that ledger."""
+    # Step 1 — guard: only counted (QUANTITY) items have a numeric ledger.
+    if ingredient.tracking_mode != TrackingMode.QUANTITY:
+        raise ValueError("only QUANTITY ingredients can record transactions")
+
+    # Step 2 — append the change to the ledger.
+    txn = PantryTransaction(
+        ingredient_id=ingredient.id,
+        change_amount=change_amount,
+        reason=reason,
+        note=note,
+    )
+    session.add(txn)
+
+    # Step 3 — recompute on_hand = the SUM of this ingredient's whole ledger (the log is truth).
+    transactions = session.exec(
+        select(PantryTransaction).where(PantryTransaction.ingredient_id == ingredient.id)
+    ).all()
+    ingredient.on_hand = sum(t.change_amount for t in transactions)
+
+    # Step 4 — save both, and hand back the new transaction.
+    session.add(ingredient)
+    session.commit()
+    session.refresh(txn)
+    return txn
