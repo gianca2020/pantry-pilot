@@ -45,8 +45,11 @@ def test_anthropic_api_key_reads_standard_env_var(monkeypatch: pytest.MonkeyPatc
     assert settings.anthropic_api_key == "sk-ant-test-123"
 
 
-def test_anthropic_api_key_defaults_to_empty(monkeypatch: pytest.MonkeyPatch) -> None:
-    # No key in the environment -> a safe empty default (we fail loudly later, not here).
+def test_anthropic_api_key_defaults_to_empty(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # No key from the environment, and no local .env in scope -> a safe empty default.
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.chdir(tmp_path)  # run where there's no .env file to read
     settings = Settings()
     assert settings.anthropic_api_key == ""

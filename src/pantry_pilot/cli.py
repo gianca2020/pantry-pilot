@@ -160,13 +160,13 @@ def suggest(
         ingredients = list_ingredients(session)
 
     # The LLM step. Any failure becomes a clean one-line message + exit code 1 (never a
-    # raw traceback). The three things that can go wrong:
-    #   RecipeSynthesisError - Claude refused or returned nothing usable
-    #   RuntimeError         - no ANTHROPIC_API_KEY configured (raised by get_client)
-    #   anthropic.APIError   - auth / rate-limit / network / server error from the API
+    # raw traceback). What can go wrong:
+    #   RecipeSynthesisError     - Claude refused or returned nothing usable
+    #   anthropic.AnthropicError - no usable credentials, or an auth / rate-limit /
+    #                              network / server error from the API
     try:
         query = synthesize_recipe_query(ingredients, goal)
-    except (RecipeSynthesisError, RuntimeError, anthropic.APIError) as exc:
+    except (RecipeSynthesisError, anthropic.AnthropicError) as exc:
         console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(1) from exc
 
