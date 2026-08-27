@@ -6,6 +6,7 @@ All the rules live in the service — the CLI is just the front door.
 
 from typing import Annotated
 
+import anthropic
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -20,6 +21,7 @@ from pantry_pilot.services.pantry import (
     record_transaction,
     set_status,
 )
+from pantry_pilot.services.synthesizer import RecipeSynthesisError, synthesize_recipe_query
 
 app = typer.Typer(help="PantryPilot — manage your pantry from the terminal.")
 console = Console()
@@ -139,3 +141,35 @@ def remove(name: str) -> None:
             raise typer.Exit(1)
         archive_ingredient(session, ingredient)
     console.print(f"[yellow]Archived[/yellow] {name}.")
+
+
+@app.command()
+def suggest(
+    goal: Annotated[Category, typer.Option("--goal", "-g", help="macro goal, e.g. protein")],
+) -> None:
+    """Turn your pantry + a macro goal into a recipe-search query (the Phase-2a LLM step).
+
+    WHAT: reads your pantry, asks Claude to synthesize a structured RecipeQuery, prints it.
+    WHY:  it is the one non-deterministic step in the pipeline — everything around it
+          (reading the pantry, printing) is plain deterministic code. Phase 2b will feed
+          the printed query to Spoonacular to fetch real, highly-rated recipes.
+    """
+    # Read the pantry deterministically, then close the DB session BEFORE the network
+    # call — we don't want a database connection held open during a slow LLM request.
+    with get_session() as session:
+        ingredients = list_ingredients(session)
+
+    # The LLM step. Any failure becomes a clean one-line message + exit code 1 (never a
+    # raw traceback). The three things that can go wrong:
+    #   RecipeSynthesisError - Claude refused or returned nothing usable
+    #   RuntimeError         - no ANTHROPIC_API_KEY configured (raised by get_client)
+    #   anthropic.APIError   - auth / rate-limit / network / server error from the API
+    try:
+        query = synthesize_recipe_query(ingredients, goal)
+    except (RecipeSynthesisError, RuntimeError, anthropic.APIError) as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+    # Show the validated query. In Phase 2b this becomes the input to the recipe fetch.
+    console.print(f"[bold]Recipe query for a {goal.value} meal:[/bold]")
+    console.print_json(query.model_dump_json())
