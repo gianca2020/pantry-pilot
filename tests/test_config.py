@@ -35,3 +35,18 @@ def test_env_vars_override_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.echo_sql is True
     # An ABSOLUTE path brings its own leading slash -> four slashes total.
     assert settings.database_url == "sqlite:////tmp/pantry-test.db"
+
+
+def test_anthropic_api_key_reads_standard_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The SDK's own convention is ANTHROPIC_API_KEY (no PANTRY_ prefix), so we
+    # read that exact name via validation_alias.
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-123")
+    settings = Settings()
+    assert settings.anthropic_api_key == "sk-ant-test-123"
+
+
+def test_anthropic_api_key_defaults_to_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    # No key in the environment -> a safe empty default (we fail loudly later, not here).
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    settings = Settings()
+    assert settings.anthropic_api_key == ""
