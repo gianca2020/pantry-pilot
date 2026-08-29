@@ -155,9 +155,11 @@ In `synthesize_recipe_query` (contract + gate):
    step 2's payload checks then handle it. **Refusals surface here** — as `is_error: true` or a missing payload; `stop_reason`
    is intentionally **not** inspected (unlike the old SDK path). *(The synthesizer — not the runner — owns this: a nonzero
    **exit** is transport, the runner's job; `is_error` is a content-level failure on an otherwise-successful zero-exit envelope, a contract concern.)*
-2. `payload = envelope.get("structured_output")` (an object); if `None` (whether the key is **absent** or JSON-`null`),
-   **fallback** to `json.loads(envelope["result"])` — `result` is a JSON **string** mirror — guarded with
-   `except (KeyError, json.JSONDecodeError, TypeError)` → `RecipeSynthesisError` (the `KeyError` covers `result` being absent too).
+2. `payload = envelope.get("structured_output")` (an object); if `None` (key **absent** or JSON-`null`), **fallback**
+   to the JSON string in `result`: `raw = envelope.get("result")`; if `raw` isn't a `str` → `RecipeSynthesisError`;
+   else `json.loads(raw)` guarded by `except json.JSONDecodeError` → `RecipeSynthesisError`. *(The `isinstance(raw, str)`
+   check both handles a missing `result` and satisfies `mypy --strict`, which rejects `json.loads` on an `object` — a
+   drift caught during the build.)*
 3. **`RecipeQuery.model_validate(payload)`** — the sacred boundary. Even though `--json-schema` (belt) constrained the
    shape, nothing reaches state until Pydantic (suspenders) re-validates. `ValidationError` → `RecipeSynthesisError`
    (wrapped `from exc`). Return the validated `RecipeQuery`.
@@ -200,7 +202,7 @@ to a clean one-line message + `exit 1`, no traceback.
 | Failure | Detection | Raised | Message (exit 1) |
 |---|---|---|---|
 | `claude` binary absent | `FileNotFoundError` | `ClaudeCliError(kind="not_found")` | "claude CLI not found — install Claude Code" |
-| Not logged in / auth | rc≠0 + `"authenticat"`/`"logged in"` in stderr | `kind="auth"` | "Claude is not authenticated (run `claude auth`)" |
+| Not logged in / auth | rc≠0 + `"auth"`/`"login"`/`"log in"` in stderr | `kind="auth"` | "Claude is not authenticated (run `claude auth`)" |
 | Timeout / hang | `subprocess.TimeoutExpired` | `kind="timeout"` | "Claude timed out after 120s" |
 | stdout not JSON | `json.JSONDecodeError` | `kind="bad_output"` | "Claude returned unreadable output" |
 | Quota / rate-limit | rc≠0 + `"rate limit"`/`"quota"`/`"overloaded"` | `kind="quota"` | "Claude quota or rate limit reached" |

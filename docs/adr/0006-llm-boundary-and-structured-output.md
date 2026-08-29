@@ -1,6 +1,8 @@
 # ADR 0006 — The LLM boundary: structured-output validation for recipe-query synthesis
 
-**Status:** Accepted
+**Status:** Superseded by [ADR 0007](0007-llm-boundary-via-claude-cli.md) — the boundary moved from the
+Anthropic Messages API SDK to the Claude Code CLI (`claude -p`) on the subscription. The determinism
+principle below still holds; only the *mechanism* changed.
 
 ## Context
 Phase 2 adds PantryPilot's first LLM step. The determinism rule (CLAUDE.md) says persistent
