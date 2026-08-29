@@ -6,11 +6,11 @@ All the rules live in the service — the CLI is just the front door.
 
 from typing import Annotated
 
-import anthropic
 import typer
 from rich.console import Console
 from rich.table import Table
 
+from pantry_pilot.core.claude_cli import ClaudeCliError
 from pantry_pilot.core.database import get_session, init_db
 from pantry_pilot.models.enums import BaseUnit, Category, StockStatus, TrackingMode, TxnReason
 from pantry_pilot.services.pantry import (
@@ -144,32 +144,29 @@ def remove(name: str) -> None:
 
 
 @app.command()
-def suggest(
-    goal: Annotated[Category, typer.Option("--goal", "-g", help="macro goal, e.g. protein")],
-) -> None:
-    """Turn your pantry + a macro goal into a recipe-search query (the Phase-2a LLM step).
+def suggest() -> None:
+    """Turn your pantry into a recipe-search query (the Phase-2a LLM step).
 
     WHAT: reads your pantry, asks Claude to synthesize a structured RecipeQuery, prints it.
     WHY:  it is the one non-deterministic step in the pipeline — everything around it
           (reading the pantry, printing) is plain deterministic code. Phase 2b will feed
           the printed query to Spoonacular to fetch real, highly-rated recipes.
     """
-    # Read the pantry deterministically, then close the DB session BEFORE the network
-    # call — we don't want a database connection held open during a slow LLM request.
+    # Read the pantry deterministically, then close the DB session BEFORE the LLM call —
+    # we don't want a database connection held open during a slow subprocess request.
     with get_session() as session:
         ingredients = list_ingredients(session)
 
     # The LLM step. Any failure becomes a clean one-line message + exit code 1 (never a
     # raw traceback). What can go wrong:
-    #   RecipeSynthesisError     - Claude refused or returned nothing usable
-    #   anthropic.AnthropicError - no usable credentials, or an auth / rate-limit /
-    #                              network / server error from the API
+    #   RecipeSynthesisError - Claude returned nothing usable / schema-invalid
+    #   ClaudeCliError       - claude not installed / not logged in / timeout / quota / bad output
     try:
-        query = synthesize_recipe_query(ingredients, goal)
-    except (RecipeSynthesisError, anthropic.AnthropicError) as exc:
+        query = synthesize_recipe_query(ingredients)
+    except (RecipeSynthesisError, ClaudeCliError) as exc:
         console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(1) from exc
 
     # Show the validated query. In Phase 2b this becomes the input to the recipe fetch.
-    console.print(f"[bold]Recipe query for a {goal.value} meal:[/bold]")
+    console.print("[bold]Recipe query from your pantry:[/bold]")
     console.print_json(query.model_dump_json())
