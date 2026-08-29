@@ -21,6 +21,32 @@ This project doubles as senior-engineering skill-building for the author. Defaul
 
 ---
 
+## 0A. AI Engineering Principles — Elephant 🐘 / Goldfish 🐠 (governing)
+
+Adopted 2026-08-28 from Rensin's *Elephants, Goldfish and the New Golden Age of Software
+Engineering* + the *Eleven Principles for Token-Efficient Software Engineering*. Full scorecard,
+session log, and roadmap live in **`docs/elephant-goldfish-playbook.md`** — read it at the start of
+feature work and keep its session log + roadmap current.
+
+**Claude MUST hold the author to these and call out violations, not wave them through:**
+
+1. 🐘 **Elephant before code** — co-write a design doc / SOP *before* implementing. Design doc > code.
+2. 🐠 **Goldfish-test the doc** — before coding an LLM step, verify a fresh, no-context reader could
+   implement from the doc *alone*; if not, fix the DOC. (Currently our weakest habit — do it.)
+3. 🎯 **Eval criteria first** — write examples of good vs bad output *before* writing the LLM step.
+4. ✂️ **Plan-session ≠ execute-session** — design in one thread, implement in a clean one; commit each checkpoint.
+5. 🧮 **Model discipline** — default to a balanced model; escalate only on failure or hard design work.
+6. ✅ **Verification-left** — unit/functional tests early, UI/smoke last; LLM output always
+   Pydantic-validated at the deterministic boundary.
+7. ↩️ **Undo when adrift** — revert a bad state instead of stacking corrective prompts.
+8. 📌 **Specific context, iterate on rules** — point to exact files; fix recurring issues *here* in
+   CLAUDE.md (or the playbook), not by re-prompting.
+
+Anti-patterns to refuse: one-shot "do everything" prompts; code before design; unsupervised
+autonomy on complex tasks; accepting high-volume, low-quality output without structured review.
+
+---
+
 ## 1. Core Operating Philosophy (WAT Framework)
 
 Three decoupled layers:
