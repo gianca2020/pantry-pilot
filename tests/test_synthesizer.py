@@ -1,12 +1,13 @@
-"""Tests for the recipe-query synthesizer (no real network calls)."""
+"""Tests for the recipe-query synthesizer (offline: inject a fake ClaudeRunner).
 
-from typing import cast
+RED FIRST: these fail until you rewrite src/pantry_pilot/services/synthesizer.py
+onto the injected runner (drop the macro goal). Your job is to make them green.
+"""
 
 import pytest
-from anthropic import Anthropic
 
+from pantry_pilot.core.claude_cli import ClaudeCliError, ClaudeRunner
 from pantry_pilot.models.enums import BaseUnit, Category, StockStatus, TrackingMode
-from pantry_pilot.models.schemas import RecipeQuery
 from pantry_pilot.models.tables import Ingredient
 from pantry_pilot.services.synthesizer import (
     RecipeSynthesisError,
@@ -34,50 +35,57 @@ def _spinach() -> Ingredient:
     )
 
 
-# --- A tiny fake Claude client so tests stay offline and deterministic -------
+def _runner_returning(envelope: dict[str, object]) -> ClaudeRunner:
+    def _run(prompt: str, schema: dict[str, object], *, system: str) -> dict[str, object]:
+        return envelope
+
+    return _run
 
 
-class _FakeResponse:
-    def __init__(
-        self, parsed_output: RecipeQuery | None, stop_reason: str = "end_turn"
-    ) -> None:
-        self.parsed_output = parsed_output
-        self.stop_reason = stop_reason
+def _runner_raising(exc: Exception) -> ClaudeRunner:
+    def _run(prompt: str, schema: dict[str, object], *, system: str) -> dict[str, object]:
+        raise exc
+
+    return _run
 
 
-class _FakeMessages:
-    def __init__(self, response: _FakeResponse) -> None:
-        self._response = response
-
-    def parse(self, **kwargs: object) -> _FakeResponse:
-        return self._response
+def test_format_pantry_lists_every_item_without_a_goal() -> None:
+    text = _format_pantry([_chicken(), _spinach()])
+    assert "Macro goal" not in text          # goal is gone
+    assert "chicken" in text and "spinach" in text
 
 
-class _FakeClient:
-    def __init__(self, response: _FakeResponse) -> None:
-        self.messages = _FakeMessages(response)
+def test_returns_validated_query_from_structured_output() -> None:
+    envelope = {"is_error": False, "structured_output": {"include_ingredients": ["chicken"]}}
+    result = synthesize_recipe_query([_chicken()], runner=_runner_returning(envelope))
+    assert result.include_ingredients == ["chicken"]
 
 
-def _client_returning(response: _FakeResponse) -> Anthropic:
-    # The fake matches the slice of Anthropic we call; cast so mypy accepts it.
-    return cast(Anthropic, _FakeClient(response))
+def test_falls_back_to_result_json_string() -> None:
+    envelope = {"result": '{"include_ingredients": ["chicken"]}'}  # no structured_output
+    result = synthesize_recipe_query([_chicken()], runner=_runner_returning(envelope))
+    assert result.include_ingredients == ["chicken"]
 
 
-def test_format_pantry_names_the_goal_and_every_item() -> None:
-    text = _format_pantry([_chicken(), _spinach()], Category.PROTEIN)
-    assert "protein" in text.lower()  # the macro goal appears
-    assert "chicken" in text  # every pantry item is listed
-    assert "spinach" in text
-
-
-def test_synthesize_returns_the_validated_query() -> None:
-    canned = RecipeQuery(include_ingredients=["chicken"], exclude_ingredients=[])
-    client = _client_returning(_FakeResponse(canned))
-    result = synthesize_recipe_query([_chicken()], Category.PROTEIN, client=client)
-    assert result is canned  # the parsed_output is handed straight back
-
-
-def test_synthesize_raises_on_refusal() -> None:
-    client = _client_returning(_FakeResponse(None, stop_reason="refusal"))
+def test_is_error_envelope_raises() -> None:
+    envelope = {"is_error": True, "structured_output": {"include_ingredients": ["chicken"]}}
     with pytest.raises(RecipeSynthesisError):
-        synthesize_recipe_query([_chicken()], Category.PROTEIN, client=client)
+        synthesize_recipe_query([_chicken()], runner=_runner_returning(envelope))
+
+
+def test_no_payload_raises() -> None:
+    with pytest.raises(RecipeSynthesisError):
+        synthesize_recipe_query([_chicken()], runner=_runner_returning({"is_error": False}))
+
+
+def test_schema_invalid_payload_raises() -> None:
+    # missing the required include_ingredients -> Pydantic (suspenders) catches it
+    envelope = {"structured_output": {"cuisine": "italian"}}
+    with pytest.raises(RecipeSynthesisError):
+        synthesize_recipe_query([_chicken()], runner=_runner_returning(envelope))
+
+
+def test_transport_error_propagates() -> None:
+    runner = _runner_raising(ClaudeCliError("down", kind="timeout"))
+    with pytest.raises(ClaudeCliError):
+        synthesize_recipe_query([_chicken()], runner=runner)
