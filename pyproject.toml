@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "httpx>=0.28.1",
     "pydantic-settings>=2.15.0",
     "sqlmodel>=0.0.39",
     "typer>=0.27.1",
