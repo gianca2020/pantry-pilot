@@ -11,7 +11,7 @@ HOW   Each line is `name: type`. A bare type is REQUIRED; a `type | None = None`
       field is OPTIONAL and defaults to None when the model omits it.
 """
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class RecipeQuery(BaseModel):
@@ -23,3 +23,25 @@ class RecipeQuery(BaseModel):
     cuisine: str | None = None  # e.g. "italian" -> cuisine
     dish_type: str | None = None  # e.g. "main course" -> type
     max_ready_minutes: int | None = None  # cap on total cook time -> maxReadyTime
+
+
+class Recipe(BaseModel):
+    """One candidate recipe from Spoonacular complexSearch (Phase-2b retrieval).
+
+    WHAT  The validated shape of a single search result. Like RecipeQuery, a plain
+          Pydantic model (no DB, just structure) — the deterministic gate for API output.
+    WHY   Retrieval must never hand un-validated API JSON to the rest of the app (the
+          determinism rule). _parse_recipes() runs Recipe.model_validate() on each result;
+          extra API fields we don't model (imageType, healthScore, dishTypes, ...) are
+          dropped automatically.
+    HOW   Two fields come back under a camelCase API key that differs from our snake_case
+          name, so they carry a `validation_alias` — model_validate reads the value from the
+          alias key while the attribute keeps its Python name.
+    """
+
+    id: int  # REQUIRED: Spoonacular's stable recipe id <- "id"
+    title: str  # REQUIRED: display name <- "title"
+    image: str | None = None  # thumbnail URL <- "image"
+    ready_minutes: int | None = Field(default=None, validation_alias="readyInMinutes")
+    servings: int | None = None  # how many the recipe serves <- "servings"
+    source_url: str | None = Field(default=None, validation_alias="sourceUrl")
