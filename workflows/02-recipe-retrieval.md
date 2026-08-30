@@ -55,8 +55,8 @@ Transport/contract failures raise `SpoonacularError` (carrying a `.kind`). An **
 | Malformed result item (e.g. missing `id`) | `Recipe.model_validate` | `SpoonacularError` (`bad_output`) |
 | **Zero matches** (`results: []`) | — | *none* — returns `[]`; caller decides |
 
-*(Assumption to confirm on the live smoke: `sort=popularity` is an accepted `sort` value — canonical in
-Spoonacular's docs.)*
+*(Confirmed on the live smoke 2026-08-30: `sort=popularity` is accepted; 5 real results validated against
+`Recipe`.)*
 
 ## Tests
 - `tests/test_spoonacular.py` — offline, fakes `httpx.get`: params/URL assembly, apiKey injection, each

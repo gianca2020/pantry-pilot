@@ -135,6 +135,9 @@ Adopt this checklist per Phase 2–4 LLM step:
 - **✅ Verification-left:** TDD red→green, **fully offline** (injected fake fetcher + saved fixture JSON);
   21 new tests (48→69), `mypy`/`ruff` clean. Rich `Recipe` uses `validation_alias` for the camelCase
   API keys (`readyInMinutes`, `sourceUrl`).
+- **🔌 Live smoke ✅ (loop closed):** real key via gitignored `.env`; `find_recipes` returned **5**
+  popularity-sorted candidates that validated against `Recipe` — `sort=popularity` accepted, fixture
+  shape matches reality. (Aside: `includeIngredients` is a ranking signal, not a strict AND filter.)
 - **🧹 Hygiene (intellectual honesty):** the canonical `uv run mypy` (config `files=["src","tests"]`) was
   actually **red** on latent f3 test-file issues (f3 had verified with `mypy src` only) — fixed
   mechanically in a *separate* commit so bare mypy is green across 28 files.

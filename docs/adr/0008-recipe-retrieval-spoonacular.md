@@ -46,8 +46,9 @@ seam. Full failure matrix + step list live in the SOP; this ADR records the deci
   fixture + `model_validate` gate hedge drift — a schema change should trigger a re-check.
 - `addRecipeInformation=true` costs a few extra quota points per call — acceptable for low-volume
   personal use.
-- **Unverified until the live smoke:** that `sort=popularity` is an accepted `sort` value (canonical in
-  Spoonacular's docs; confirm on the first real call).
+- **Confirmed (live smoke, 2026-08-30):** `sort=popularity` is accepted, and 5 real candidates validated
+  cleanly against `Recipe` (camelCase aliases mapped, `maxReadyTime` respected) — the saved fixture's
+  shape matches reality.
 
 ## Alternatives rejected / deferred
 - **Richer / agentic web retrieval** (multiple sources, scraping, agentic search) — deferred to
