@@ -62,7 +62,7 @@ def test_returns_validated_query_from_structured_output() -> None:
 
 
 def test_falls_back_to_result_json_string() -> None:
-    envelope = {"result": '{"include_ingredients": ["chicken"]}'}  # no structured_output
+    envelope: dict[str, object] = {"result": '{"include_ingredients": ["chicken"]}'}  # no struct.
     result = synthesize_recipe_query([_chicken()], runner=_runner_returning(envelope))
     assert result.include_ingredients == ["chicken"]
 
@@ -80,7 +80,7 @@ def test_no_payload_raises() -> None:
 
 def test_schema_invalid_payload_raises() -> None:
     # missing the required include_ingredients -> Pydantic (suspenders) catches it
-    envelope = {"structured_output": {"cuisine": "italian"}}
+    envelope: dict[str, object] = {"structured_output": {"cuisine": "italian"}}
     with pytest.raises(RecipeSynthesisError):
         synthesize_recipe_query([_chicken()], runner=_runner_returning(envelope))
 

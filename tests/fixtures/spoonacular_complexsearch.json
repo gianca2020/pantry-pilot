@@ -1,0 +1,40 @@
+{
+  "offset": 0,
+  "number": 3,
+  "totalResults": 42,
+  "results": [
+    {
+      "id": 715538,
+      "title": "Garlic Butter Chicken with Rice",
+      "image": "https://img.spoonacular.com/recipes/715538-312x231.jpg",
+      "imageType": "jpg",
+      "readyInMinutes": 35,
+      "servings": 4,
+      "sourceUrl": "https://example.com/garlic-butter-chicken-rice",
+      "healthScore": 18,
+      "spoonacularScore": 82.5,
+      "dishTypes": ["lunch", "main course", "dinner"],
+      "cuisines": []
+    },
+    {
+      "id": 640941,
+      "title": "Creamy Chicken and Spinach",
+      "image": "https://img.spoonacular.com/recipes/640941-312x231.jpg",
+      "imageType": "jpg",
+      "readyInMinutes": 45,
+      "servings": 2,
+      "sourceUrl": "https://example.com/creamy-chicken-spinach",
+      "healthScore": 30,
+      "spoonacularScore": 90.0,
+      "dishTypes": ["main course"],
+      "cuisines": ["Italian"]
+    },
+    {
+      "id": 511728,
+      "title": "Simple Garlic Chicken",
+      "image": "https://img.spoonacular.com/recipes/511728-312x231.jpg",
+      "imageType": "jpg",
+      "servings": 6
+    }
+  ]
+}

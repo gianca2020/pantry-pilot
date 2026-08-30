@@ -9,7 +9,7 @@
 > in §3 when planning a feature; log the session in §5; keep §6 (roadmap) honest.
 > This doc is the reminder — if a habit here isn't happening, that's the signal to fix it.
 
-Last updated: **2026-08-28**
+Last updated: **2026-08-30**
 
 ---
 
@@ -122,6 +122,32 @@ Adopt this checklist per Phase 2–4 LLM step:
 - **Branching:** its own feature branch `dev-feature-3-cli-llm-boundary` off `main` (feature-2 merged via PR #3).
 - **New teaching habit:** a gradual-release ladder for hard logic — TODO comments → pseudocode → code + explanation.
 
+### 2026-08-30 — Phase 2b: recipe retrieval (deterministic Spoonacular tool)
+- **Goal:** turn a validated `RecipeQuery` into real, highly-rated candidate recipes — see ADR 0008 +
+  `workflows/02-recipe-retrieval.md`.
+- **🐘 Elephant, proportionate:** design-first in a plan session (plan file → ADR 0008). Deterministic
+  tool, so **correctly NO Goldfish test / NO eval criteria** (those are LLM-step gates) — a good
+  calibration that process should *scale to the task*.
+- **Boundary reuse:** mirrored the Phase-2a seam — transport `core/spoonacular.py` (`RecipeFetcher`
+  Protocol + `fetch_recipes`, httpx) vs logic `services/retrieval.py` (`_query_to_params`,
+  `_parse_recipes`, `find_recipes`); a typed `SpoonacularError(.kind)` mirroring `ClaudeCliError`.
+  Errors map on **HTTP status** — cleaner than the CLI seam's stderr heuristic.
+- **✅ Verification-left:** TDD red→green, **fully offline** (injected fake fetcher + saved fixture JSON);
+  21 new tests (48→69), `mypy`/`ruff` clean. Rich `Recipe` uses `validation_alias` for the camelCase
+  API keys (`readyInMinutes`, `sourceUrl`).
+- **🔌 Live smoke ✅ (loop closed):** real key via gitignored `.env`; `find_recipes` returned **5**
+  popularity-sorted candidates that validated against `Recipe` — `sort=popularity` accepted, fixture
+  shape matches reality. (Aside: `includeIngredients` is a ranking signal, not a strict AND filter.)
+- **🧹 Hygiene (intellectual honesty):** the canonical `uv run mypy` (config `files=["src","tests"]`) was
+  actually **red** on latent f3 test-file issues (f3 had verified with `mypy src` only) — fixed
+  mechanically in a *separate* commit so bare mypy is green across 28 files.
+- **✂️ Scope discipline:** Spoonacular is the deliberate single v1 source; richer/agentic retrieval
+  deferred to **GH #10**. No CLI in v1 (chaining is the Phase-4 orchestrator's job); live smoke via a
+  fixed `RecipeQuery` snippet.
+- **Branching:** `dev-feature-4-recipe-retrieval` off `main`; small commits (deps → transport → feature → hygiene).
+- **Learning note:** author set out to hand-write the core; on *resume* Claude implemented it at the
+  ladder's "code + explanation" rung for PR-style review — learning-first honored, momentum kept.
+
 ---
 
 ## 6. Roadmap — what's next (with rough time estimates)
@@ -133,7 +159,7 @@ so they're padded vs. a pro just shipping. "Session" ≈ one focused ~1–2 hr s
 |---|---|---|
 | ~~**0. Close today's loop**~~ ✅ | Ran `suggest` w/o API key: SDK resolves OAuth creds & error-handling works; inference blocked by **$0 credit balance** (account, not code). | *done 2026-08-28* |
 | **1. First Goldfish test** (habit adoption) | Take SOP `01-query-synthesis.md` + ADR 0006 to a fresh session; fix any gaps it can't implement from. | **~30–45 min** |
-| **2. Recipe-retrieval tool** (deterministic) | A `services/` tool: `RecipeQuery` → candidate recipes (local fixtures or an API). Pure, testable, no LLM. | **~1–2 sessions (2–4 hr)** |
+| ~~**2. Recipe-retrieval tool**~~ ✅ | `services/retrieval.py` + `core/spoonacular.py`: `RecipeQuery` → validated `Recipe`s via complexSearch (`sort=popularity`), offline-tested. ADR 0008 + SOP 02. | *done 2026-08-30* |
 | **3. Recipe parsing** (LLM boundary #2) | LLM: raw recipe text → validated `Recipe` schema. New SOP + eval criteria + Goldfish test first. | **~2–3 sessions (4–6 hr)** |
 | **4. Semantic ingredient resolution** (LLM boundary #3) | Match recipe ingredients ↔ pantry inventory (fuzzy/semantic), validated to schema. | **~2–3 sessions (4–6 hr)** |
 | **5. Phase-4 orchestrator** (the WAT "Agent") | `pipeline/orchestrator.py` wires the tools + LLM steps; add hard stop conditions & no uncontrolled loops (Principle 10). | **~3–4 sessions (6–8 hr)** |
