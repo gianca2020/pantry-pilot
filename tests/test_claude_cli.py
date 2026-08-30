@@ -4,7 +4,6 @@ import subprocess
 
 import pytest
 
-from pantry_pilot.core import claude_cli
 from pantry_pilot.core.claude_cli import ClaudeCliError, run_claude
 
 _SCHEMA: dict[str, object] = {"type": "object"}
@@ -27,14 +26,14 @@ class _FakeRun:
 
 def test_returns_parsed_envelope_on_success(monkeypatch: pytest.MonkeyPatch) -> None:
     fake = _FakeRun(stdout=_OK_STDOUT)
-    monkeypatch.setattr(claude_cli.subprocess, "run", fake)
+    monkeypatch.setattr(subprocess, "run", fake)
     env = run_claude("Pantry items:\n- chicken (protein)", _SCHEMA, system="be tasty")
     assert env["structured_output"] == {"include_ingredients": ["chicken"]}
 
 
 def test_argv_has_the_expected_flags_and_prompt_on_stdin(monkeypatch: pytest.MonkeyPatch) -> None:
     fake = _FakeRun(stdout=_OK_STDOUT)
-    monkeypatch.setattr(claude_cli.subprocess, "run", fake)
+    monkeypatch.setattr(subprocess, "run", fake)
     run_claude("PROMPT-TEXT", _SCHEMA, system="SYS")
     argv, kwargs = fake.calls[0]
     assert argv[:2] == ["claude", "-p"]
@@ -49,17 +48,19 @@ def test_argv_has_the_expected_flags_and_prompt_on_stdin(monkeypatch: pytest.Mon
 def test_scrubs_anthropic_api_key_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-should-not-pass")
     fake = _FakeRun(stdout=_OK_STDOUT)
-    monkeypatch.setattr(claude_cli.subprocess, "run", fake)
+    monkeypatch.setattr(subprocess, "run", fake)
     run_claude("p", _SCHEMA, system="s")
     _, kwargs = fake.calls[0]
-    assert "ANTHROPIC_API_KEY" not in kwargs["env"]  # billing can only hit the subscription
+    env = kwargs["env"]
+    assert isinstance(env, dict)  # narrow object -> dict for the membership check
+    assert "ANTHROPIC_API_KEY" not in env  # billing can only hit the subscription
 
 
 def test_missing_binary_raises_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
     def _boom(*a: object, **k: object) -> object:
         raise FileNotFoundError
 
-    monkeypatch.setattr(claude_cli.subprocess, "run", _boom)
+    monkeypatch.setattr(subprocess, "run", _boom)
     with pytest.raises(ClaudeCliError) as exc:
         run_claude("p", _SCHEMA, system="s")
     assert exc.value.kind == "not_found"
@@ -69,7 +70,7 @@ def test_timeout_raises_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     def _timeout(*a: object, **k: object) -> object:
         raise subprocess.TimeoutExpired(cmd="claude", timeout=120)
 
-    monkeypatch.setattr(claude_cli.subprocess, "run", _timeout)
+    monkeypatch.setattr(subprocess, "run", _timeout)
     with pytest.raises(ClaudeCliError) as exc:
         run_claude("p", _SCHEMA, system="s")
     assert exc.value.kind == "timeout"
@@ -87,7 +88,7 @@ def test_nonzero_exit_maps_stderr_to_kind(
     monkeypatch: pytest.MonkeyPatch, stderr: str, expected_kind: str
 ) -> None:
     fake = _FakeRun(returncode=1, stderr=stderr)
-    monkeypatch.setattr(claude_cli.subprocess, "run", fake)
+    monkeypatch.setattr(subprocess, "run", fake)
     with pytest.raises(ClaudeCliError) as exc:
         run_claude("p", _SCHEMA, system="s")
     assert exc.value.kind == expected_kind
@@ -98,7 +99,7 @@ def test_non_dict_stdout_raises_bad_output(
     monkeypatch: pytest.MonkeyPatch, stdout: str
 ) -> None:
     fake = _FakeRun(stdout=stdout)
-    monkeypatch.setattr(claude_cli.subprocess, "run", fake)
+    monkeypatch.setattr(subprocess, "run", fake)
     with pytest.raises(ClaudeCliError) as exc:
         run_claude("p", _SCHEMA, system="s")
     assert exc.value.kind == "bad_output"
