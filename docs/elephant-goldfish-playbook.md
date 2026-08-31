@@ -200,8 +200,15 @@ Adopt this checklist per Phase 2–4 LLM step:
   hallucination guard in `assess` (persona steers to real names; `assess` enforces). One non-deterministic step
   (`resolve_recipe`, tools OFF); stock/rank/mutation all deterministic + Pydantic-validated at the boundary.
 - **Branching:** `dev-feature-8-recipe-resolver` off `main` (Phase 2c merged via PR #15).
-- **🔬 Build spike + 🔌 live smoke:** the final end-to-end verification (build spike graded real matches vs
-  design §5; live smoke of `pantry cook-ideas`) — see the SOP + this session's PR.
+- **🔬 Build spike ✅ (read-only, 2026-08-30):** graded a real `resolve_recipe` on a real recipetineats
+  honey-garlic-chicken vs §5 — 3 correct verbatim matches (chicken/garlic/soy sauce), all 5 genuinely-absent
+  lines correctly `null` → "buy:", **zero** hallucinated names (the guard never had to fire), honest confidence.
+  GOOD.
+- **🔌 Live smoke ✅ (loop closed, 2026-08-30):** seeded a throwaway pantry (temp `PANTRY_DB_PATH`, real dev DB
+  untouched); `pantry cook-ideas --theme "chicken dinner"` → 4 recipes ranked fewest-missing (10/11/12/16), each
+  with ⚠ notes (e.g. "garlic powder ≈ fresh garlic?") + a shopping list; cooking #1 flipped a PRESENCE item
+  (garlic ok→low) and reported the QUANTITY nudge (`pantry use chicken`) with chicken still **800 g** —
+  **ledger untouched** (D4). GOOD vs §5.
 
 ---
 

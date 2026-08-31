@@ -85,9 +85,11 @@ check + the ranking + the presence-flip. The persona *steers* the model to real 
   empty/non-numeric/out-of-range/EOF → skip).
 
 ## Build spikes / live smoke
-- **Build spike (read-only):** grade a real `resolve_recipe` on one real `find_trending` recipe + a seeded
-  sample pantry against design §5 (correct matches, honest `confident`, `null` when not stocked, no hallucinated
-  names).
-- **Live smoke (final):** seed a small pantry (`pantry add …`), then `pantry cook-ideas --theme "chicken dinner"`
-  → a ranked table + shopping list; optionally cook #1 and confirm a PRESENCE item flipped + the QUANTITY nudge,
-  with the ledger untouched.
+- **Build spike ✅ (read-only, 2026-08-30):** graded a real `resolve_recipe` on a real
+  `find_trending("honey garlic chicken")` recipe (recipetineats) + the §5 sample pantry — 3 correct verbatim
+  matches (chicken/garlic/soy sauce), all 5 genuinely-absent lines `null` → "buy:", **no** hallucinated names,
+  honest confidence. GOOD vs §5.
+- **Live smoke ✅ (2026-08-30):** seeded a throwaway pantry (temp `PANTRY_DB_PATH`), then
+  `pantry cook-ideas --theme "chicken dinner"` → 4 recipes ranked fewest-missing, per-recipe ⚠ notes (e.g. dried
+  "garlic powder" vs fresh pantry "garlic") + shopping lists; cooking #1 flipped `garlic ok→low` and reported the
+  QUANTITY nudge (`pantry use chicken`) with `chicken` still 800 g — **ledger untouched** (D4). GOOD.
