@@ -19,6 +19,7 @@ from pantry_pilot.models.tables import Ingredient, PantryTransaction
 from pantry_pilot.services.pantry import add_ingredient
 from pantry_pilot.services.resolver import (
     ResolutionError,
+    _clean_ingredient_lines,
     _parse_resolution,
     _resolver_persona,
     _shopping_list,
@@ -51,6 +52,31 @@ def test_prompt_lists_pantry_names_and_ingredient_lines() -> None:
     prompt = _to_resolution_prompt(recipe, ["chicken", "soy sauce"])
     assert "chicken" in prompt and "soy sauce" in prompt
     assert "2 lb chicken" in prompt and "1/3 cup honey" in prompt
+
+
+def test_clean_ingredient_lines_strips_prices_and_drops_headers() -> None:
+    raw = [
+        "1 tsp grated fresh ginger ($0.10)",  # trailing scraped price -> stripped
+        "3 tbsp oyster sauce ($0.30)*",       # price mid/near-end -> stripped
+        "Sauce (Note 6 for the all-purpose stir fry):",  # section header (ends ':') -> dropped
+        "For serving:",                        # section header -> dropped
+        "",                                    # blank -> dropped
+        "2 lb chicken breasts, cubed",         # real line -> unchanged
+    ]
+    assert _clean_ingredient_lines(raw) == [
+        "1 tsp grated fresh ginger",
+        "3 tbsp oyster sauce*",
+        "2 lb chicken breasts, cubed",
+    ]
+
+
+def test_prompt_uses_cleaned_lines() -> None:
+    # A recipe whose scraped ingredients carry a price + a section header:
+    recipe = Recipe(title="Stir Fry", ingredients=["2 tbsp oyster sauce ($0.30)", "Sauce:"])
+    prompt = _to_resolution_prompt(recipe, ["oyster sauce"])
+    assert "2 tbsp oyster sauce" in prompt
+    assert "$0.30" not in prompt  # price stripped before the LLM ever sees it
+    assert "Sauce:" not in prompt  # section header dropped
 
 
 def test_persona_states_the_match_rules() -> None:
