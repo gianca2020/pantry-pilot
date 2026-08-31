@@ -177,7 +177,11 @@ def test_ask_cook_choice_parses_and_guards(monkeypatch: pytest.MonkeyPatch) -> N
 
 def _ranked_plan(*, cookable: bool = False) -> PlanResult:
     fit = RecipeFit(
-        recipe=Recipe(title="Garlic Chicken"),
+        recipe=Recipe.model_validate({
+            "title": "Garlic Chicken",
+            "sourceUrl": "https://recipetineats.com/garlic-chicken",
+            "steps": ["Sear the chicken until golden.", "Add garlic; simmer in the sauce."],
+        }),
         have=[IngredientMatch(recipe_ingredient="2 lb chicken", pantry_name="chicken")],
         missing=[] if cookable else [IngredientMatch(recipe_ingredient="1 cup honey")],
     )
@@ -206,6 +210,15 @@ def test_plan_prints_ranked_table(monkeypatch: pytest.MonkeyPatch) -> None:
     result = CliRunner().invoke(app, ["plan", "-t", "cozy"])  # no stdin -> cook skipped
     assert result.exit_code == 0
     assert "Garlic Chicken" in result.output
+
+
+def test_plan_shows_recipe_link_in_browse(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("pantry_pilot.cli.init_db", lambda: None)
+    monkeypatch.setattr("pantry_pilot.cli.list_ingredients", lambda *a, **k: [])
+    monkeypatch.setattr("pantry_pilot.cli.make_plan", lambda *a, **k: _ranked_plan())
+    result = CliRunner().invoke(app, ["plan"])  # browse only, no cook
+    assert result.exit_code == 0
+    assert "recipetineats.com/garlic-chicken" in result.output  # link to research it yourself
 
 
 def test_plan_degraded_prints_ideas_and_no_cook(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -243,7 +256,12 @@ def test_plan_cook_path_flips_and_reports(monkeypatch: pytest.MonkeyPatch) -> No
     )
     result = CliRunner().invoke(app, ["plan"], input="1\n")
     assert result.exit_code == 0
-    assert "Cooked" in result.output and "garlic -> low" in result.output
+    # "help me cook": the selection surfaces the recipe (title + link + steps) to cook from...
+    assert "Let's cook Garlic Chicken" in result.output
+    assert "recipetineats.com/garlic-chicken" in result.output
+    assert "Sear the chicken" in result.output
+    # ...and the pantry update still happens, demoted to a footer.
+    assert "garlic -> low" in result.output
 
 
 def test_plan_error_exits_1(monkeypatch: pytest.MonkeyPatch) -> None:

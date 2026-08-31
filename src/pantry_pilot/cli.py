@@ -369,8 +369,10 @@ def _present_ranked(fits: list[RecipeFit]) -> None:
         )
     console.print(table)
 
-    for f in fits:  # per-recipe detail: uncertain ⚠ matches (with why) + shopping list
+    for f in fits:  # per-recipe detail: link (research it) + uncertain ⚠ matches + shopping list
         console.print(f"\n[bold]{f.recipe.title}[/bold]")
+        if f.recipe.source_url:
+            console.print(f"  [dim]🔗 {f.recipe.source_url}[/dim]")
         for m in _uncertain(f):
             why = f" — {m.note}" if m.note else ""
             console.print(f"  [yellow]⚠[/yellow] {m.pantry_name}{why}")
@@ -378,12 +380,32 @@ def _present_ranked(fits: list[RecipeFit]) -> None:
             console.print(f"  [yellow]•[/yellow] {line}")
 
     choice = _ask_cook_choice(len(fits))  # EOF / empty / out-of-range -> None (skip)
-    if choice is not None:
-        with get_session() as session:
-            cook_result = cook(session, fits[choice])
-        console.print(f"\n[green]Cooked[/green] {fits[choice].recipe.title}.")
+    if choice is None:
+        return
+    _help_me_cook(fits[choice])
+
+
+def _help_me_cook(fit: RecipeFit) -> None:
+    """Selecting a recipe = "help me cook this dish": surface the link + numbered steps to cook
+    from, then adjust the pantry (ledger-honest) as a footer. Ingredients aren't repeated —
+    they're already in the shopping list above.
+    """
+    console.print(f"\n[bold green]Let's cook {fit.recipe.title}[/bold green]")
+    if fit.recipe.source_url:
+        console.print(f"  🔗 {fit.recipe.source_url}")
+    if fit.recipe.steps:
+        console.print("\n[bold]Steps:[/bold]")
+        for n, step in enumerate(fit.recipe.steps, start=1):
+            console.print(f"  {n}. {step}")
+    else:
+        console.print("[dim](open the link above for the full recipe)[/dim]")
+
+    with get_session() as session:  # the pantry update, demoted to a footer
+        cook_result = cook(session, fit)
+    if cook_result.flipped or cook_result.to_update:
+        console.print("\n[dim]Pantry updated:[/dim]")
         for flip in cook_result.flipped:
             console.print(f"  {flip}")
         if cook_result.to_update:
             used = ", ".join(f"`pantry use {n} <amt>`" for n in cook_result.to_update)
-            console.print(f"Used (update by hand): {used}")
+            console.print(f"  Used (update by hand): {used}")
