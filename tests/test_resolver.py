@@ -12,12 +12,15 @@ from pathlib import Path
 import pytest
 
 from pantry_pilot.core.claude_cli import ClaudeRunner
-from pantry_pilot.models.schemas import Recipe
+from pantry_pilot.models.enums import BaseUnit, Category, StockStatus, TrackingMode
+from pantry_pilot.models.schemas import IngredientMatch, Recipe
+from pantry_pilot.models.tables import Ingredient
 from pantry_pilot.services.resolver import (
     ResolutionError,
     _parse_resolution,
     _resolver_persona,
     _to_resolution_prompt,
+    assess,
     resolve_recipe,
 )
 
@@ -86,3 +89,48 @@ def test_resolve_recipe_wires_runner_and_returns_matches() -> None:
     env = {"is_error": False, "structured_output": _inner()}
     matches = resolve_recipe(recipe, ["chicken"], runner=_runner_returning(env))
     assert len(matches) == 7
+
+
+# --- Task 3: assess (deterministic gate: hallucination guard + stock check) ---
+
+
+def _pantry() -> list[Ingredient]:
+    return [
+        Ingredient(name="chicken", category=Category.PROTEIN, tracking_mode=TrackingMode.QUANTITY,
+                   base_unit=BaseUnit.GRAM, on_hand=800),
+        Ingredient(name="soy sauce", category=Category.STAPLE, tracking_mode=TrackingMode.PRESENCE,
+                   status=StockStatus.OK),
+        Ingredient(name="garlic", category=Category.STAPLE, tracking_mode=TrackingMode.PRESENCE,
+                   status=StockStatus.LOW),
+        Ingredient(name="spinach", category=Category.GREEN, tracking_mode=TrackingMode.PRESENCE,
+                   status=StockStatus.OUT),
+        Ingredient(name="onion", category=Category.GREEN, tracking_mode=TrackingMode.QUANTITY,
+                   base_unit=BaseUnit.EACH, on_hand=3),
+    ]
+
+
+def test_assess_splits_have_and_missing() -> None:
+    matches = _parse_resolution({"is_error": False, "structured_output": _inner()})
+    fit = assess(Recipe(title="X"), matches, _pantry())
+    have = {m.pantry_name for m in fit.have}
+    assert have == {"chicken", "soy sauce", "garlic", "onion"}   # stocked
+    # missing: honey(null), spinach(OUT), honey-glaze(hallucinated name not in pantry)
+    assert len(fit.missing) == 3
+
+
+def test_assess_hallucinated_name_goes_missing() -> None:
+    m = IngredientMatch(recipe_ingredient="honey glaze", pantry_name="honey")  # not in pantry
+    fit = assess(Recipe(title="X"), [m], _pantry())
+    assert fit.have == [] and fit.missing == [m]
+
+
+def test_assess_out_of_stock_goes_missing() -> None:
+    m = IngredientMatch(recipe_ingredient="1 bunch spinach", pantry_name="spinach")  # row is OUT
+    fit = assess(Recipe(title="X"), [m], _pantry())
+    assert fit.missing == [m]
+
+
+def test_assess_keeps_uncertain_match_in_have() -> None:
+    m = IngredientMatch(recipe_ingredient="2 green onions", pantry_name="onion", confident=False)
+    fit = assess(Recipe(title="X"), [m], _pantry())
+    assert fit.have == [m]

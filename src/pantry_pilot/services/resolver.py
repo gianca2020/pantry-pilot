@@ -18,7 +18,9 @@ from typing import Literal
 from pydantic import ValidationError
 
 from pantry_pilot.core.claude_cli import ClaudeRunner, run_claude
-from pantry_pilot.models.schemas import IngredientMatch, Recipe, RecipeResolution
+from pantry_pilot.models.enums import StockStatus, TrackingMode
+from pantry_pilot.models.schemas import IngredientMatch, Recipe, RecipeFit, RecipeResolution
+from pantry_pilot.models.tables import Ingredient
 
 ResolutionErrorKind = Literal["llm_failed", "bad_output"]
 
@@ -102,3 +104,33 @@ def resolve_recipe(
     prompt = _to_resolution_prompt(recipe, pantry_names)
     envelope = runner(prompt, RecipeResolution.model_json_schema(), system=_resolver_persona())
     return _parse_resolution(envelope)
+
+
+# --- The deterministic gate: assess (hallucination guard + stock check) ---
+
+
+def _in_stock(item: Ingredient) -> bool:
+    """Does this pantry row count as on-hand? QUANTITY: on_hand > 0; PRESENCE: not OUT."""
+    if item.tracking_mode == TrackingMode.QUANTITY:
+        return (item.on_hand or 0) > 0  # None or 0 -> not in stock
+    return item.status != StockStatus.OUT  # PRESENCE: OK or LOW counts as have
+
+
+def assess(recipe: Recipe, matches: list[IngredientMatch], pantry: list[Ingredient]) -> RecipeFit:
+    """Split a recipe's matches into have vs. missing against the real pantry.
+
+    The hallucination guard: `by_name.get(pantry_name)` is None for any name the model invented
+    that isn't actually in the pantry -> that match drops to missing. The persona *steers* to
+    real names; assess *enforces* it. Matched-but-OUT / on_hand==0 also -> missing. Uncertain
+    (confident=False) but stocked matches still count as have (surfaced ⚠ later, never blocked).
+    """
+    by_name = {i.name: i for i in pantry}
+    have: list[IngredientMatch] = []
+    missing: list[IngredientMatch] = []
+    for m in matches:
+        item = by_name.get(m.pantry_name) if m.pantry_name else None  # guard: name must be real
+        if item is not None and _in_stock(item):
+            have.append(m)
+        else:
+            missing.append(m)  # null / hallucinated name / OUT / empty
+    return RecipeFit(recipe=recipe, have=have, missing=missing)
