@@ -5,7 +5,14 @@ from typer.testing import CliRunner
 
 from pantry_pilot.cli import app
 from pantry_pilot.core.claude_cli import ClaudeCliError
-from pantry_pilot.models.schemas import Recipe, RecipeQuery, TrendingQuery
+from pantry_pilot.models.schemas import (
+    IngredientMatch,
+    Recipe,
+    RecipeFit,
+    RecipeQuery,
+    TrendingQuery,
+)
+from pantry_pilot.services.resolver import ResolutionError
 
 
 def test_suggest_prints_the_synthesized_query(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -85,3 +92,75 @@ def test_trending_error_exits_1(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert result.exit_code == 1
     assert "Error:" in result.output
+
+
+# --- `cook-ideas` command (Phase-3 resolver; offline: find_trending + rank_recipes patched) ---
+
+
+def _fit(title: str, missing: int) -> RecipeFit:
+    miss = [IngredientMatch(recipe_ingredient=f"item {i}") for i in range(missing)]
+    return RecipeFit(recipe=Recipe(title=title), have=[], missing=miss)
+
+
+def test_cook_ideas_prints_ranked_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("pantry_pilot.cli.init_db", lambda: None)
+    monkeypatch.setattr("pantry_pilot.cli.list_ingredients", lambda *a, **k: [])
+    monkeypatch.setattr("pantry_pilot.cli.find_trending", lambda *a, **k: [])
+    monkeypatch.setattr(
+        "pantry_pilot.cli.rank_recipes", lambda *a, **k: [_fit("Soup", 0), _fit("Stew", 2)]
+    )
+    result = CliRunner().invoke(app, ["cook-ideas", "--theme", "cozy"])  # no stdin -> cook skipped
+    assert result.exit_code == 0
+    assert "Soup" in result.output and "Stew" in result.output
+
+
+def test_cook_ideas_builds_query_from_options(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_find(query: TrendingQuery, **k: object) -> list[Recipe]:
+        captured["query"] = query
+        return []
+
+    monkeypatch.setattr("pantry_pilot.cli.init_db", lambda: None)
+    monkeypatch.setattr("pantry_pilot.cli.list_ingredients", lambda *a, **k: [])
+    monkeypatch.setattr("pantry_pilot.cli.find_trending", _fake_find)
+    monkeypatch.setattr("pantry_pilot.cli.rank_recipes", lambda *a, **k: [])
+    result = CliRunner().invoke(app, ["cook-ideas", "-t", "ramen", "--max-minutes", "30"])
+    assert result.exit_code == 0
+    q = captured["query"]
+    assert isinstance(q, TrendingQuery) and q.theme == "ramen" and q.max_minutes == 30
+
+
+def test_cook_ideas_error_exits_1(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _boom(*a: object, **k: object) -> list[RecipeFit]:
+        raise ResolutionError("bad", kind="bad_output")
+
+    monkeypatch.setattr("pantry_pilot.cli.init_db", lambda: None)
+    monkeypatch.setattr("pantry_pilot.cli.list_ingredients", lambda *a, **k: [])
+    monkeypatch.setattr(
+        "pantry_pilot.cli.find_trending", lambda *a, **k: [Recipe(title="X", ingredients=["a"])]
+    )
+    monkeypatch.setattr("pantry_pilot.cli.rank_recipes", _boom)
+    result = CliRunner().invoke(app, ["cook-ideas"])
+    assert result.exit_code == 1
+    assert "Error:" in result.output
+
+
+def test_ask_cook_choice_parses_and_guards(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Non-blocking prompt: 1-based -> 0-based; empty / non-numeric / out-of-range / EOF -> None."""
+    from pantry_pilot.cli import _ask_cook_choice
+
+    monkeypatch.setattr("builtins.input", lambda _prompt: "1")
+    assert _ask_cook_choice(3) == 0  # 1-based -> 0-based
+    monkeypatch.setattr("builtins.input", lambda _prompt: "")
+    assert _ask_cook_choice(3) is None  # empty -> skip
+    monkeypatch.setattr("builtins.input", lambda _prompt: "nope")
+    assert _ask_cook_choice(3) is None  # non-numeric -> skip
+    monkeypatch.setattr("builtins.input", lambda _prompt: "9")
+    assert _ask_cook_choice(3) is None  # out of range -> skip
+
+    def _eof(_prompt: str) -> str:
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", _eof)
+    assert _ask_cook_choice(3) is None  # EOF / no TTY -> skip
