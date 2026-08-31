@@ -69,5 +69,6 @@ deterministic**: `TrendingResults.model_validate` (schema gate) + `_filter` (all
 - **Build spikes (read-only, 2026-08-30):** confirmed the web-tool flag combo on the installed CLI (the
   design's single `--tools "WebSearch WebFetch"` did NOT enable web; needs comma-list + `--allowedTools`);
   measured ~120 s / ~14 turns / $0 real; graded real output vs design §5 (GOOD).
-- **Live smoke (final):** `find_trending(TrendingQuery(theme="chicken dinner"))` → validated `Recipe`s with
-  real steps from allow-listed sources, graded against the design §5 rubric.
+- **Live smoke ✅ (2026-08-30):** `find_trending(TrendingQuery(theme="chicken dinner"))` → 3 validated
+  `Recipe`s with real steps from allow-listed sources (pinchofyum ×2, halfbakedharvest); ~108 s / $0. A
+  WebFetch spot-check confirmed one URL exists with byte-identical steps. GOOD vs the design §5 rubric.

@@ -45,6 +45,10 @@ this ADR records the decisions.
   caught by code — that's a **grading-only** concern (design §5), verified in the live smoke.
 - Slower/costlier per call than Spoonacular (agentic, ~2 min) but $0 marginal on the subscription.
 - A good recipe from an *unlisted free* site is dropped — accepted for v1 (the list is config-driven).
+- **Confirmed (live smoke, 2026-08-30):** `find_trending(TrendingQuery(theme="chicken dinner"))` returned 3
+  recipes, all allow-listed, each with real verbatim ingredients + steps (~108 s / $0). A WebFetch spot-check
+  confirmed one URL exists with byte-identical steps — the persona + `_filter` + validation flow works
+  end-to-end on live data.
 - Depends on an external contract we don't own (the live web + the CLI's tool behavior); the flag combo is
   pinned from a build spike and a CLI change should trigger a re-check.
 

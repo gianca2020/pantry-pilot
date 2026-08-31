@@ -169,7 +169,11 @@ Adopt this checklist per Phase 2–4 LLM step:
   build via the alias (mirrors the real `model_validate` flow).
 - **Learning note:** author started the core via the TODO→pseudocode→code ladder; on a time crunch asked
   Claude to finish it at the "code + explanation" rung for PR-style review — learning-first honored, momentum kept.
-- **Branching:** `dev-feature-6-trending-source` off `main` (design merged via PR #13; Phase 2b via #11).
+- **🔌 Live smoke ✅ (loop closed, 2026-08-30):** real `find_trending(TrendingQuery(theme="chicken dinner"))`
+  → 3 recipes, ALL allow-listed (pinchofyum ×2, halfbakedharvest), each with real ingredients + numbered
+  steps; ~108 s / $0. Spot-checked one URL via WebFetch — page exists, title matches, first step
+  **byte-identical** (not paraphrased) → closes §5 BAD #1/#5 (fabrication), which code can't catch. GOOD.
+- **Branching:** `dev-feature-6-trending-source` off `main` (design merged via PR #13; Phase 2b via #11); **PR #14**.
 
 ---
 
