@@ -19,8 +19,11 @@ from pantry_pilot.services.resolver import (
     ResolutionError,
     _parse_resolution,
     _resolver_persona,
+    _shopping_list,
+    _step_down,
     _to_resolution_prompt,
     assess,
+    rank_recipes,
     resolve_recipe,
 )
 
@@ -134,3 +137,60 @@ def test_assess_keeps_uncertain_match_in_have() -> None:
     m = IngredientMatch(recipe_ingredient="2 green onions", pantry_name="onion", confident=False)
     fit = assess(Recipe(title="X"), [m], _pantry())
     assert fit.have == [m]
+
+
+# --- Task 4: rank_recipes + _shopping_list + _step_down ---
+
+
+def test_shopping_list_restock_vs_buy() -> None:
+    fit = assess(
+        Recipe(title="X"),
+        _parse_resolution({"is_error": False, "structured_output": _inner()}),
+        _pantry(),
+    )
+    lines = _shopping_list(fit)
+    assert "restock spinach" in lines  # stocked but OUT
+    assert "buy: 1/3 cup honey" in lines  # null match -> not stocked
+    assert "buy: honey glaze" in lines  # hallucinated name -> not stocked
+
+
+def test_step_down() -> None:
+    assert _step_down(StockStatus.OK) == StockStatus.LOW
+    assert _step_down(StockStatus.LOW) == StockStatus.OUT
+    assert _step_down(StockStatus.OUT) == StockStatus.OUT
+
+
+def test_rank_orders_by_fewest_missing_and_skips_ingredient_less() -> None:
+    full = Recipe(title="All I have", ingredients=["2 lb chicken breasts, cubed"])
+    partial = Recipe(
+        title="Missing one", ingredients=["2 lb chicken breasts, cubed", "1/3 cup honey"]
+    )
+    no_ingredients = Recipe(title="No lines")  # ingredients is None -> skipped
+
+    def _runner(prompt: str, schema: dict[str, object], *, system: str) -> dict[str, object]:
+        # Return one match per line, matched by simple substring against the prompt's pantry list.
+        lines = [ln[2:] for ln in prompt.split("\n") if ln.startswith("- ")]
+        matches: list[dict[str, object]] = []
+        for ln in lines:
+            name = "chicken" if "chicken" in ln else None
+            matches.append({"recipe_ingredient": ln, "pantry_name": name})
+        return {"is_error": False, "structured_output": {"matches": matches}}
+
+    ranked = rank_recipes([partial, full, no_ingredients], _pantry(), runner=_runner)
+    assert [f.recipe.title for f in ranked] == ["All I have", "Missing one"]  # no-lines skipped
+
+
+def test_rank_skips_a_recipe_that_fails_resolution() -> None:
+    good = Recipe(title="Good", ingredients=["2 lb chicken breasts, cubed"])
+    bad = Recipe(title="Bad", ingredients=["x"])
+    calls = {"n": 0}
+
+    def _runner(prompt: str, schema: dict[str, object], *, system: str) -> dict[str, object]:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return {"is_error": True}  # first recipe -> ResolutionError -> skipped
+        match = {"recipe_ingredient": "2 lb chicken breasts, cubed", "pantry_name": "chicken"}
+        return {"is_error": False, "structured_output": {"matches": [match]}}
+
+    ranked = rank_recipes([bad, good], _pantry(), runner=_runner)
+    assert [f.recipe.title for f in ranked] == ["Good"]
