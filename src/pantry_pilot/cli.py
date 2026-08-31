@@ -22,6 +22,13 @@ from pantry_pilot.services.pantry import (
     record_transaction,
     set_status,
 )
+from pantry_pilot.services.resolver import (
+    ResolutionError,
+    _shopping_list,
+    _uncertain,
+    cook,
+    rank_recipes,
+)
 from pantry_pilot.services.synthesizer import RecipeSynthesisError, synthesize_recipe_query
 from pantry_pilot.services.trending import TrendingRecipeError, find_trending
 
@@ -217,3 +224,87 @@ def trending(
         ready = f"{r.ready_minutes} min" if r.ready_minutes else "-"
         table.add_row(r.title, ready, str(len(r.steps or [])), r.source_url or "-")
     console.print(table)
+
+
+@app.command(name="cook-ideas")
+def cook_ideas(
+    theme: Annotated[
+        str | None, typer.Option("--theme", "-t", help="what to look for, e.g. 'chicken dinner'")
+    ] = None,
+    cuisine: Annotated[str | None, typer.Option("--cuisine", "-c", help="e.g. 'thai'")] = None,
+    meal: Annotated[str | None, typer.Option("--meal", "-m", help="e.g. 'dinner'")] = None,
+    max_minutes: Annotated[
+        int | None, typer.Option("--max-minutes", help="cap on total cook time")
+    ] = None,
+) -> None:
+    """Rank what's trending by what you can cook tonight from your pantry (Phase-3 resolver).
+
+    WHAT: reads your pantry, finds trending recipes (source #2), asks Claude to match each
+          ingredient line to a pantry item, then ranks by fewest-missing and prints a shopping
+          list. Optionally 'cook' one to adjust the pantry.
+    WHY:  the per-recipe match is the one non-deterministic step; the stock check, ranking, and
+          state mutation around it are all deterministic. This can take a minute or two.
+    """
+    query = TrendingQuery(theme=theme, cuisine=cuisine, meal_type=meal, max_minutes=max_minutes)
+
+    # Read the pantry deterministically, then close the DB session BEFORE the slow LLM calls.
+    with get_session() as session:
+        pantry = list_ingredients(session)
+
+    console.print("[dim]Matching what's trending to your pantry… (may take a minute or two)[/dim]")
+    # The LLM step (one match call per trending recipe). Any failure -> clean one-line + exit 1:
+    #   ResolutionError - a systemic content failure surfacing from the resolver
+    #   ClaudeCliError  - claude not installed / not logged in / timeout / quota / bad output
+    try:
+        recipes = find_trending(query)
+        fits = rank_recipes(recipes, pantry)
+    except (ResolutionError, ClaudeCliError) as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+    if not fits:  # nothing trending, or nothing with ingredients to resolve — not an error
+        console.print("[yellow]No cookable ideas found[/yellow] — try a broader theme.")
+        return
+
+    table = Table(title="What can I cook tonight?")
+    for column in ("Title", "Missing", "⚠", "Can make?"):
+        table.add_column(column)
+    for f in fits:
+        table.add_row(
+            f.recipe.title,
+            str(len(f.missing)),
+            str(len(_uncertain(f))),
+            "✓" if not f.missing else "✗",
+        )
+    console.print(table)
+
+    for f in fits:  # per-recipe detail: uncertain ⚠ matches (with why) + shopping list
+        console.print(f"\n[bold]{f.recipe.title}[/bold]")
+        for m in _uncertain(f):
+            why = f" — {m.note}" if m.note else ""
+            console.print(f"  [yellow]⚠[/yellow] {m.pantry_name}{why}")
+        for line in _shopping_list(f):
+            console.print(f"  [yellow]•[/yellow] {line}")
+
+    choice = _ask_cook_choice(len(fits))  # EOF / empty / out-of-range -> None (skip)
+    if choice is not None:
+        with get_session() as session:
+            result = cook(session, fits[choice])
+        console.print(f"\n[green]Cooked[/green] {fits[choice].recipe.title}.")
+        for flip in result.flipped:
+            console.print(f"  {flip}")
+        if result.to_update:
+            used = ", ".join(f"`pantry use {n} <amt>`" for n in result.to_update)
+            console.print(f"Used (update by hand): {used}")
+
+
+def _ask_cook_choice(n: int) -> int | None:
+    """1-based prompt -> 0-based index, or None to skip. EOF / empty / bad input -> None."""
+    try:
+        raw = input(f"Cook one now? [1-{n}, or Enter to skip]: ").strip()
+    except EOFError:  # no TTY / piped / CliRunner with no input
+        return None
+    if not raw.isdigit():
+        return None
+    i = int(raw)
+    return i - 1 if 1 <= i <= n else None

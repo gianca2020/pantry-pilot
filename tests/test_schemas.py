@@ -6,7 +6,16 @@ RED FIRST: these fail until you write src/pantry_pilot/models/schemas.py.
 import pytest
 from pydantic import ValidationError
 
-from pantry_pilot.models.schemas import Recipe, RecipeQuery, TrendingQuery, TrendingResults
+from pantry_pilot.models.schemas import (
+    CookResult,
+    IngredientMatch,
+    Recipe,
+    RecipeFit,
+    RecipeQuery,
+    RecipeResolution,
+    TrendingQuery,
+    TrendingResults,
+)
 
 
 def test_minimal_query_defaults_optionals_to_none() -> None:
@@ -89,3 +98,24 @@ def test_trending_results_validates_nested_recipes() -> None:
 def test_trending_results_requires_recipes_key() -> None:
     with pytest.raises(ValidationError):
         TrendingResults.model_validate({})
+
+
+# --- Phase 3 resolver I/O models: IngredientMatch / RecipeResolution / RecipeFit / CookResult ---
+
+
+def test_ingredient_match_defaults() -> None:
+    m = IngredientMatch(recipe_ingredient="2 lb chicken")
+    assert m.pantry_name is None and m.confident is True and m.note is None
+
+
+def test_recipe_resolution_validates_list() -> None:
+    r = RecipeResolution.model_validate(
+        {"matches": [{"recipe_ingredient": "salt", "pantry_name": "salt"}]}
+    )
+    assert r.matches[0].pantry_name == "salt" and r.matches[0].confident is True
+
+
+def test_recipe_fit_and_cook_result_shapes() -> None:
+    fit = RecipeFit(recipe=Recipe(title="X"), have=[], missing=[])
+    assert fit.have == [] and fit.missing == []
+    assert CookResult(flipped=["spinach -> low"], to_update=["chicken"]).to_update == ["chicken"]

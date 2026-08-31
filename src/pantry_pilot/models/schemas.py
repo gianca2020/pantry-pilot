@@ -79,3 +79,70 @@ class TrendingResults(BaseModel):
     """
 
     recipes: list[Recipe]
+
+
+# --- Phase 3: recipe resolver ("what can I cook tonight?") I/O models ---
+
+
+class IngredientMatch(BaseModel):
+    """One recipe ingredient line matched (or not) to a canonical pantry item.
+
+    WHAT  The atomic result of the LLM match step: a raw recipe line paired with the
+          pantry item name it maps to (or None), plus an honesty flag.
+    WHY   LLM boundary #3 only *matches* free text to a pantry name; deterministic code
+          decides stock/rank/mutation from these. `confident=False` marks a judgment call
+          the CLI highlights (⚠) but never blocks on (D5); `pantry_name=None` means the
+          pantry has nothing suitable -> the item is missing.
+    HOW   Defaults keep the schema forgiving so the model can emit a bare
+          {recipe_ingredient, pantry_name} and still validate (confident -> True).
+    """
+
+    recipe_ingredient: str  # REQUIRED: the raw recipe line, verbatim
+    pantry_name: str | None = None  # matched pantry item name, or None = not stocked
+    confident: bool = True  # False = judgment call (highlight ⚠, do not block)
+    note: str | None = None  # optional "why", e.g. "'green onions' ≈ 'onion'?"
+
+
+class RecipeResolution(BaseModel):
+    """The LLM's reply for one recipe — a wrapper around a list of matches.
+
+    WHAT  A one-field object: {"matches": [IngredientMatch, ...]}.
+    WHY   --json-schema needs an object at the top level, so we wrap the list;
+          RecipeResolution.model_json_schema() is handed to Claude as the contract, and
+          _parse_resolution validates the envelope payload against it before any match is
+          trusted (the determinism rule).
+    HOW   matches is REQUIRED (no default). No cardinality check — a reply with fewer/more
+          matches than recipe lines still validates; unmatched lines just aren't assessed.
+    """
+
+    matches: list[IngredientMatch]  # REQUIRED: one entry per recipe ingredient line (ideally)
+
+
+class RecipeFit(BaseModel):
+    """The deterministic assessment of one recipe against the pantry (one per recipe).
+
+    WHAT  A recipe split into what you have vs what you're missing.
+    WHY   The output of `assess` and the unit `rank_recipes` orders; the CLI renders it as a
+          row (Missing / ⚠ / Can make?) plus a per-recipe shopping list.
+    HOW   `have` = matched to a stocked pantry item (may include ⚠ uncertain-but-stocked);
+          `missing` = null match, hallucinated name, or matched-but-OUT/empty.
+    """
+
+    recipe: Recipe
+    have: list[IngredientMatch]  # matched to a stocked pantry item (may include ⚠ uncertain)
+    missing: list[IngredientMatch]  # null match, hallucinated name, or matched-but-OUT/empty
+
+
+class CookResult(BaseModel):
+    """What `cook` changed in the pantry — ledger-honest (D4).
+
+    WHAT  Two lists of names: PRESENCE items stepped down, and QUANTITY items to adjust by hand.
+    WHY   Cook flips matched PRESENCE items down one notch (OK->LOW->OUT) but never fabricates
+          a ledger amount for QUANTITY items — those are *reported* for manual `pantry use`,
+          keeping the event-sourced ledger truthful.
+    HOW   `flipped` holds formatted strings ("name -> newstatus") the CLI prints as-is;
+          `to_update` holds bare QUANTITY names.
+    """
+
+    flipped: list[str]  # formatted "name -> newstatus" per PRESENCE item stepped down
+    to_update: list[str]  # QUANTITY names to adjust by hand (never auto-deducted)

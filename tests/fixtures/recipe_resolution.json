@@ -1,0 +1,11 @@
+{
+  "matches": [
+    {"recipe_ingredient": "2 lb chicken breasts, cubed", "pantry_name": "chicken", "confident": true},
+    {"recipe_ingredient": "1/4 cup low sodium soy sauce", "pantry_name": "soy sauce", "confident": true},
+    {"recipe_ingredient": "1/3 cup honey", "pantry_name": null, "confident": true},
+    {"recipe_ingredient": "3 cloves garlic, minced", "pantry_name": "garlic", "confident": true},
+    {"recipe_ingredient": "1 bunch spinach", "pantry_name": "spinach", "confident": true},
+    {"recipe_ingredient": "2 green onions, sliced", "pantry_name": "onion", "confident": false, "note": "green onions ~ onion?"},
+    {"recipe_ingredient": "honey glaze", "pantry_name": "honey", "confident": false, "note": "not sure honey is stocked"}
+  ]
+}

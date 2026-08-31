@@ -175,6 +175,41 @@ Adopt this checklist per Phase 2–4 LLM step:
   **byte-identical** (not paraphrased) → closes §5 BAD #1/#5 (fabrication), which code can't catch. GOOD.
 - **Branching:** `dev-feature-6-trending-source` off `main` (design merged via PR #13; Phase 2b via #11); **PR #14**.
 
+### 2026-08-30 — Phase 3: recipe resolver "what can I cook tonight?" (LLM boundary #3)
+- **Goal:** rank fetched recipes by what the pantry can cook tonight — an LLM matches each recipe ingredient
+  line to a pantry item, then deterministic code decides in-stock, ranks by fewest-missing, and `cook` adjusts
+  the pantry — see ADR 0010 + `workflows/04-recipe-resolver.md` + `docs/design/recipe-resolver.md`.
+- **🐘 Elephant + 🐠 Goldfish ×3:** design-of-record written in a dedicated design session and Goldfished three
+  times (**72 → 88 → 72 → v2 ≈ 95%**); every surfaced seam (prompt template, persona, the `_parse` gate
+  contract, the hallucination guard, cook dedup + ledger-honesty, CLI skip-on-EOF) folded into the doc first.
+- **🎯 Eval criteria first:** good/bad match rubric written in the design (§5) before coding the LLM step.
+- **✂️ Plan/execute split (now a firm habit):** designed in one thread; this was a clean **execute** session —
+  `executing-plans`, TDD, a commit per task (7 tasks: schemas → resolver boundary → assess → rank → cook → CLI →
+  docs). Baseline confirmed green before Task 1.
+- **✅ Verification-left:** TDD red→green, **fully offline** (injected fake `ClaudeRunner` + saved fixture /
+  plain `Ingredient` objects; the `session` fixture only for `cook`). 24 new tests (105→129), `mypy --strict` +
+  `ruff` clean throughout.
+- **🔍 TDD caught a real spec bug:** the locked plan's reference `_shopping_list` was inconsistent with its own
+  test — it said `"restock honey"` for a *hallucinated* name where the test wanted `"buy: honey glaze"`. Design
+  §6 ("treated as null") resolved it; author chose **Option A** — `assess` normalizes an unreal `pantry_name` to
+  `None` so `_shopping_list` (unchanged signature) says `"buy:"`. Surfaced + decided PR-style, not waved through
+  (CLAUDE.md §0A). Recorded in ADR 0010.
+- **Learning note:** author took the **fallback** early (crunched) — Claude built the core (Tasks 2–5) at the
+  "code + explanation" rung for PR-style review; learning-first honored via review, momentum kept.
+- **Determinism reuse:** mirrors source #2's two-gate shape — schema gate (`_parse_resolution`) + a
+  hallucination guard in `assess` (persona steers to real names; `assess` enforces). One non-deterministic step
+  (`resolve_recipe`, tools OFF); stock/rank/mutation all deterministic + Pydantic-validated at the boundary.
+- **Branching:** `dev-feature-8-recipe-resolver` off `main` (Phase 2c merged via PR #15).
+- **🔬 Build spike ✅ (read-only, 2026-08-30):** graded a real `resolve_recipe` on a real recipetineats
+  honey-garlic-chicken vs §5 — 3 correct verbatim matches (chicken/garlic/soy sauce), all 5 genuinely-absent
+  lines correctly `null` → "buy:", **zero** hallucinated names (the guard never had to fire), honest confidence.
+  GOOD.
+- **🔌 Live smoke ✅ (loop closed, 2026-08-30):** seeded a throwaway pantry (temp `PANTRY_DB_PATH`, real dev DB
+  untouched); `pantry cook-ideas --theme "chicken dinner"` → 4 recipes ranked fewest-missing (10/11/12/16), each
+  with ⚠ notes (e.g. "garlic powder ≈ fresh garlic?") + a shopping list; cooking #1 flipped a PRESENCE item
+  (garlic ok→low) and reported the QUANTITY nudge (`pantry use chicken`) with chicken still **800 g** —
+  **ledger untouched** (D4). GOOD vs §5.
+
 ---
 
 ## 6. Roadmap — what's next (with rough time estimates)
@@ -188,7 +223,7 @@ so they're padded vs. a pro just shipping. "Session" ≈ one focused ~1–2 hr s
 | **1. First Goldfish test** (habit adoption) | Take SOP `01-query-synthesis.md` + ADR 0006 to a fresh session; fix any gaps it can't implement from. | **~30–45 min** |
 | ~~**2. Recipe-retrieval tool**~~ ✅ | `services/retrieval.py` + `core/spoonacular.py`: `RecipeQuery` → validated `Recipe`s via complexSearch (`sort=popularity`), offline-tested. ADR 0008 + SOP 02. | *done 2026-08-30* |
 | **3. Recipe parsing** (LLM boundary #2) | LLM: raw recipe text → validated `Recipe` schema. New SOP + eval criteria + Goldfish test first. | **~2–3 sessions (4–6 hr)** |
-| **4. Semantic ingredient resolution** (LLM boundary #3) | Match recipe ingredients ↔ pantry inventory (fuzzy/semantic), validated to schema. | **~2–3 sessions (4–6 hr)** |
+| ~~**4. Semantic ingredient resolution**~~ ✅ (LLM boundary #3) | Match recipe ingredient lines ↔ pantry (LLM matches; code decides in-stock/rank/mutate), validated to schema. `services/resolver.py` + `pantry cook-ideas`. ADR 0010 + SOP 04. | *done 2026-08-30 (Phase 3)* |
 | **5. Phase-4 orchestrator** (the WAT "Agent") | `pipeline/orchestrator.py` wires the tools + LLM steps; add hard stop conditions & no uncontrolled loops (Principle 10). | **~3–4 sessions (6–8 hr)** |
 | **6. End-to-end smoke test** | Full `suggest → retrieve → parse → resolve` run; UI/smoke tests last (verification-left). | **~1 session (1–2 hr)** |
 
