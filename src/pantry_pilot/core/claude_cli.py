@@ -46,23 +46,20 @@ def _scrubbed_env() -> dict[str, str]:
     return env
 
 
-def run_claude(prompt: str, schema: dict[str, object], *, system: str) -> dict[str, object]:
-    """Invoke `claude -p` headless and return the parsed JSON envelope."""
-    argv = [
-        "claude", "-p",
-        "--output-format", "json",
-        "--json-schema", json.dumps(schema),
-        "--model", "opus",
-        "--append-system-prompt", system,
-        "--tools", "",
-    ]
+def _invoke_claude(argv: list[str], prompt: str, *, timeout: int) -> dict[str, object]:
+    """Run a `claude -p` argv with the prompt on stdin; map every failure to ClaudeCliError.
+
+    Shared body for all claude-CLI transports (plain `run_claude` + web-enabled
+    `run_claude_web`) so the failure -> `.kind` mapping is guaranteed byte-identical.
+    Only the argv (which tools/model) and the timeout differ between callers.
+    """
     try:
         result = subprocess.run(
             argv,
             input=prompt,
             capture_output=True,
             text=True,
-            timeout=CLAUDE_TIMEOUT_S,
+            timeout=timeout,
             cwd=_repo_root(),
             env=_scrubbed_env(),
             check=False,
@@ -72,7 +69,7 @@ def run_claude(prompt: str, schema: dict[str, object], *, system: str) -> dict[s
             "claude CLI not found — install Claude Code", kind="not_found"
         ) from exc
     except subprocess.TimeoutExpired as exc:
-        raise ClaudeCliError(f"Claude timed out after {CLAUDE_TIMEOUT_S}s", kind="timeout") from exc
+        raise ClaudeCliError(f"Claude timed out after {timeout}s", kind="timeout") from exc
 
     if result.returncode != 0:
         stderr = (result.stderr or "").strip()
@@ -90,3 +87,16 @@ def run_claude(prompt: str, schema: dict[str, object], *, system: str) -> dict[s
     if not isinstance(envelope, dict):
         raise ClaudeCliError("Claude returned unreadable output", kind="bad_output")
     return envelope
+
+
+def run_claude(prompt: str, schema: dict[str, object], *, system: str) -> dict[str, object]:
+    """Invoke `claude -p` headless (tools OFF, deterministic) and return the JSON envelope."""
+    argv = [
+        "claude", "-p",
+        "--output-format", "json",
+        "--json-schema", json.dumps(schema),
+        "--model", "opus",
+        "--append-system-prompt", system,
+        "--tools", "",
+    ]
+    return _invoke_claude(argv, prompt, timeout=CLAUDE_TIMEOUT_S)

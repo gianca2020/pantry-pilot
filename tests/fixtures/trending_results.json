@@ -1,0 +1,63 @@
+{
+  "recipes": [
+    {
+      "title": "30 Minute Honey Garlic Chicken",
+      "image": "https://www.halfbakedharvest.com/img.jpg",
+      "readyInMinutes": 30,
+      "servings": 4,
+      "sourceUrl": "https://www.halfbakedharvest.com/honey-garlic-chicken/",
+      "ingredients": [
+        "2 lb chicken, cubed",
+        "1 tbsp garlic powder",
+        "1/3 cup honey",
+        "1/4 cup soy sauce",
+        "2 tbsp rice vinegar"
+      ],
+      "steps": [
+        "Preheat oven to 450F; line a sheet pan.",
+        "Toss chicken with garlic powder, salt, pepper.",
+        "Whisk honey, soy, vinegar; pour over.",
+        "Bake 20 min until caramelized.",
+        "Serve over rice."
+      ]
+    },
+    {
+      "title": "My go-to Chicken Breast recipe",
+      "image": null,
+      "readyInMinutes": 12,
+      "servings": 2,
+      "sourceUrl": "https://www.recipetineats.com/chicken-breast-recipe/",
+      "ingredients": [
+        "2 chicken breasts",
+        "1 tbsp olive oil",
+        "1/2 tsp garlic powder",
+        "1/2 tsp paprika",
+        "salt & pepper"
+      ],
+      "steps": [
+        "Mix the seasoning in a bowl.",
+        "Pound chicken even; coat with seasoning.",
+        "Sear 2-3 min per side.",
+        "Rest 5 min, then slice."
+      ]
+    },
+    {
+      "title": "Paywalled Chicken (must be dropped)",
+      "image": null,
+      "readyInMinutes": 45,
+      "servings": 4,
+      "sourceUrl": "https://cooking.nytimes.com/recipes/12345",
+      "ingredients": ["chicken", "butter"],
+      "steps": ["Do a thing.", "Do another."]
+    },
+    {
+      "title": "Allow-listed but stepless (must be dropped)",
+      "image": null,
+      "readyInMinutes": 20,
+      "servings": 2,
+      "sourceUrl": "https://www.budgetbytes.com/some-chicken/",
+      "ingredients": ["chicken", "rice"],
+      "steps": null
+    }
+  ]
+}

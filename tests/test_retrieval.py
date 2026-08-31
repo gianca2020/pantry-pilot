@@ -84,7 +84,7 @@ def test_missing_results_key_raises_bad_output() -> None:
 
 def test_malformed_result_item_raises_bad_output() -> None:
     q = RecipeQuery(include_ingredients=["chicken"])
-    bad: dict[str, object] = {"results": [{"title": "no id here"}]}  # missing the required id
+    bad: dict[str, object] = {"results": [{"id": 123}]}  # missing required title
     with pytest.raises(SpoonacularError) as exc:
         find_recipes(q, fetcher=_fetcher_returning(bad))
     assert exc.value.kind == "bad_output"

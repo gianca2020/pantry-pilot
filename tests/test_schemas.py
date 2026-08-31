@@ -6,7 +6,7 @@ RED FIRST: these fail until you write src/pantry_pilot/models/schemas.py.
 import pytest
 from pydantic import ValidationError
 
-from pantry_pilot.models.schemas import RecipeQuery
+from pantry_pilot.models.schemas import Recipe, RecipeQuery, TrendingQuery, TrendingResults
 
 
 def test_minimal_query_defaults_optionals_to_none() -> None:
@@ -46,3 +46,46 @@ def test_include_ingredients_is_required() -> None:
     # must always be present (an empty list is fine; a missing field is not).
     with pytest.raises(ValidationError):
         RecipeQuery.model_validate({"exclude_ingredients": []})
+
+
+# --- Source #2 "what's hot right now": Recipe evolution + trending I/O models ---
+
+
+def test_recipe_id_is_now_optional() -> None:
+    # Web recipes have no Spoonacular id; identity comes from source_url instead.
+    r = Recipe(title="Web recipe", source_url="https://seriouseats.com/x")
+    assert r.id is None
+
+
+def test_recipe_accepts_ingredients_and_steps() -> None:
+    r = Recipe(title="X", ingredients=["a", "b"], steps=["1", "2", "3"])
+    assert r.ingredients == ["a", "b"]
+    assert r.steps == ["1", "2", "3"]
+
+
+def test_recipe_reads_camelcase_aliases() -> None:
+    # The web model emits Recipe's aliases; model_validate reads them.
+    r = Recipe.model_validate(
+        {"title": "X", "readyInMinutes": 30, "sourceUrl": "https://x.com"}
+    )
+    assert r.ready_minutes == 30
+    assert r.source_url == "https://x.com"
+
+
+def test_trending_query_defaults_all_optional() -> None:
+    # Empty query == "what's hot overall"; every field is optional.
+    q = TrendingQuery()
+    assert (q.theme, q.cuisine, q.meal_type, q.max_minutes) == (None, None, None, None)
+
+
+def test_trending_results_validates_nested_recipes() -> None:
+    tr = TrendingResults.model_validate(
+        {"recipes": [{"title": "X", "sourceUrl": "https://x.com"}]}
+    )
+    assert len(tr.recipes) == 1
+    assert tr.recipes[0].id is None  # no id from the web
+
+
+def test_trending_results_requires_recipes_key() -> None:
+    with pytest.raises(ValidationError):
+        TrendingResults.model_validate({})
