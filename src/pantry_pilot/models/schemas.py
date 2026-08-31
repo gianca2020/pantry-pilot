@@ -11,6 +11,8 @@ HOW   Each line is `name: type`. A bare type is REQUIRED; a `type | None = None`
       field is OPTIONAL and defaults to None when the model omits it.
 """
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -146,3 +148,43 @@ class CookResult(BaseModel):
 
     flipped: list[str]  # formatted "name -> newstatus" per PRESENCE item stepped down
     to_update: list[str]  # QUANTITY names to adjust by hand (never auto-deducted)
+
+
+# --- Phase 4: orchestrator ("the WAT Agent") I/O models ---
+
+
+class StageTrace(BaseModel):
+    """Per-stage observability for one orchestrator run (the WAT "Agent"; design §4.3, D6).
+
+    WHAT  One row per pipeline stage: what it did, how it ended, how long it took.
+    WHY   `make_plan` is a single blocking call with no live progress in v1, so the full
+          per-stage trace is surfaced *after* the run (the CLI's `-v/--verbose`). This is
+          the structured log that keeps a multi-minute run legible.
+    HOW   The orchestrator's `_timed` helper sets `outcome`/`detail` from a stage's return
+          value; `seconds` is OBSERVED (wall-clock), never asserted in unit tests.
+    """
+
+    name: str  # "synthesize" | "trending" | "fallback" | "rank"
+    outcome: str = "ok"  # "ok" | "empty" | "degraded" | short summary
+    seconds: float = 0.0  # wall-clock (observed, not asserted)
+    detail: str | None = None  # e.g. "4 recipes" / "0 recipes" / "content error -> fallback"
+
+
+class PlanResult(BaseModel):
+    """The in-memory plan `make_plan` returns (design §4.3, D5) — persistence deferred.
+
+    WHAT  Everything one end-to-end run produced: the synthesized intent, which source fed
+          the plan, the ranked fits (or unranked fallback ideas), and the per-stage trace.
+    WHY   The orchestrator hands the CLI ONE validated object to render; keeping the plan in
+          memory (not persisted) is the v1 scope. `degraded` + `source_used` tell the CLI
+          whether to show the ranked table (+ cook prompt) or the unranked ideas table.
+    HOW   `source_used` is a Literal so an out-of-vocabulary value fails validation; the list
+          fields default empty (exactly one of `fits`/`ideas` is populated per run).
+    """
+
+    intent: RecipeQuery  # what it decided you need (the synthesized query)
+    source_used: Literal["trending", "spoonacular_fallback"]
+    fits: list[RecipeFit] = []  # ranked plan (empty when degraded)
+    ideas: list[Recipe] = []  # unranked Spoonacular fallback ideas (empty when ranked)
+    stages: list[StageTrace] = []  # per-stage trace
+    degraded: bool = False  # True = fell back to unranked ideas
