@@ -10,11 +10,13 @@ import json
 from pathlib import Path
 
 import pytest
+from sqlmodel import Session, select
 
 from pantry_pilot.core.claude_cli import ClaudeRunner
 from pantry_pilot.models.enums import BaseUnit, Category, StockStatus, TrackingMode
-from pantry_pilot.models.schemas import IngredientMatch, Recipe
-from pantry_pilot.models.tables import Ingredient
+from pantry_pilot.models.schemas import CookResult, IngredientMatch, Recipe, RecipeFit
+from pantry_pilot.models.tables import Ingredient, PantryTransaction
+from pantry_pilot.services.pantry import add_ingredient
 from pantry_pilot.services.resolver import (
     ResolutionError,
     _parse_resolution,
@@ -23,6 +25,7 @@ from pantry_pilot.services.resolver import (
     _step_down,
     _to_resolution_prompt,
     assess,
+    cook,
     rank_recipes,
     resolve_recipe,
 )
@@ -194,3 +197,28 @@ def test_rank_skips_a_recipe_that_fails_resolution() -> None:
 
     ranked = rank_recipes([bad, good], _pantry(), runner=_runner)
     assert [f.recipe.title for f in ranked] == ["Good"]
+
+
+# --- Task 5: cook (ledger-honest state mutation) ---
+
+
+def test_cook_flips_presence_and_nudges_quantity_without_touching_ledger(session: Session) -> None:
+    spinach = add_ingredient(session, name="spinach", category=Category.GREEN,
+                             tracking_mode=TrackingMode.PRESENCE, status=StockStatus.OK)
+    add_ingredient(session, name="chicken", category=Category.PROTEIN,
+                   tracking_mode=TrackingMode.QUANTITY, base_unit=BaseUnit.GRAM)
+    fit = RecipeFit(
+        recipe=Recipe(title="X"),
+        have=[
+            IngredientMatch(recipe_ingredient="spinach", pantry_name="spinach"),
+            IngredientMatch(recipe_ingredient="more spinach", pantry_name="spinach"),  # dup -> once
+            IngredientMatch(recipe_ingredient="2 lb chicken", pantry_name="chicken"),
+        ],
+        missing=[],
+    )
+    result: CookResult = cook(session, fit)
+    assert result.flipped == ["spinach -> low"]        # PRESENCE stepped down once (deduped)
+    assert result.to_update == ["chicken"]             # QUANTITY reported, not deducted
+    session.refresh(spinach)
+    assert spinach.status == StockStatus.LOW
+    assert session.exec(select(PantryTransaction)).all() == []   # ledger untouched (D4)

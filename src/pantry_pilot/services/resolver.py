@@ -16,11 +16,19 @@ import json
 from typing import Literal
 
 from pydantic import ValidationError
+from sqlmodel import Session
 
 from pantry_pilot.core.claude_cli import ClaudeRunner, run_claude
 from pantry_pilot.models.enums import StockStatus, TrackingMode
-from pantry_pilot.models.schemas import IngredientMatch, Recipe, RecipeFit, RecipeResolution
+from pantry_pilot.models.schemas import (
+    CookResult,
+    IngredientMatch,
+    Recipe,
+    RecipeFit,
+    RecipeResolution,
+)
 from pantry_pilot.models.tables import Ingredient
+from pantry_pilot.services.pantry import get_ingredient, set_status
 
 ResolutionErrorKind = Literal["llm_failed", "bad_output"]
 
@@ -185,3 +193,33 @@ def _step_down(status: StockStatus) -> StockStatus:
     """Nudge a PRESENCE status one notch toward empty: OK -> LOW, LOW -> OUT, OUT -> OUT."""
     steps = {StockStatus.OK: StockStatus.LOW, StockStatus.LOW: StockStatus.OUT}
     return steps.get(status, StockStatus.OUT)
+
+
+# --- State mutation: cook (ledger-honest presence-flip + quantity nudge) ---
+
+
+def cook(session: Session, fit: RecipeFit) -> CookResult:
+    """Adjust the pantry for a cooked recipe — only what you actually `have` gets consumed.
+
+    PRESENCE items step down one notch (OK->LOW->OUT), each pantry item consumed at most once
+    (deduped by pantry_name). QUANTITY items are *reported* in `to_update` for a manual
+    `pantry use`, never auto-deducted with a fabricated amount — the event-sourced ledger stays
+    truthful (D4). An item archived/renamed since resolve (get_ingredient -> None) is skipped.
+    """
+    flipped: list[str] = []
+    to_update: list[str] = []
+    seen: set[str] = set()
+    for m in fit.have:
+        if not m.pantry_name or m.pantry_name in seen:  # consume each pantry item at most once
+            continue
+        seen.add(m.pantry_name)
+        item = get_ingredient(session, m.pantry_name)
+        if item is None:  # archived/renamed since resolve -> skip safely
+            continue
+        if item.tracking_mode == TrackingMode.PRESENCE:
+            new = _step_down(item.status or StockStatus.OK)
+            set_status(session, item, new)
+            flipped.append(f"{item.name} -> {new.value}")
+        else:  # QUANTITY: never guess grams (D4)
+            to_update.append(item.name)
+    return CookResult(flipped=flipped, to_update=to_update)
