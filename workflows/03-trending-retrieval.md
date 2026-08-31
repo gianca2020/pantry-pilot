@@ -8,9 +8,9 @@ sources, and validate each into a `Recipe` **with ingredients + steps**. Source 
 step (contrast source #1's deterministic Spoonacular tool, ADR 0008). See ADR 0009 + the design doc.
 
 ## Trigger
-No CLI command in v1. Invoked programmatically — `find_trending(query)` — by the future Phase-4
-orchestrator, or by a fixed `TrendingQuery` in the live smoke. (A CLI / source-picker is the orchestrator's
-job; keeps the WAT Tools/Agent boundary clean.)
+`pantry trending [-t/--theme] [-c/--cuisine] [-m/--meal] [--max-minutes N]` — a thin standalone CLI command
+(mirrors `pantry suggest`), or programmatically `find_trending(query)`. A unified **source-picker** across
+sources #1/#2 remains the Phase-4 orchestrator's job; this command is just a direct front door to source #2.
 
 ## Inputs
 - A **`TrendingQuery`** — all optional: `theme` (free-text, e.g. "chicken dinner"; empty = "what's hot

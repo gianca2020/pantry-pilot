@@ -13,6 +13,7 @@ from rich.table import Table
 from pantry_pilot.core.claude_cli import ClaudeCliError
 from pantry_pilot.core.database import get_session, init_db
 from pantry_pilot.models.enums import BaseUnit, Category, StockStatus, TrackingMode, TxnReason
+from pantry_pilot.models.schemas import TrendingQuery
 from pantry_pilot.services.pantry import (
     add_ingredient,
     archive_ingredient,
@@ -22,6 +23,7 @@ from pantry_pilot.services.pantry import (
     set_status,
 )
 from pantry_pilot.services.synthesizer import RecipeSynthesisError, synthesize_recipe_query
+from pantry_pilot.services.trending import TrendingRecipeError, find_trending
 
 app = typer.Typer(help="PantryPilot — manage your pantry from the terminal.")
 console = Console()
@@ -170,3 +172,48 @@ def suggest() -> None:
     # Show the validated query. In Phase 2b this becomes the input to the recipe fetch.
     console.print("[bold]Recipe query from your pantry:[/bold]")
     console.print_json(query.model_dump_json())
+
+
+@app.command()
+def trending(
+    theme: Annotated[
+        str | None, typer.Option("--theme", "-t", help="what to look for, e.g. 'chicken dinner'")
+    ] = None,
+    cuisine: Annotated[str | None, typer.Option("--cuisine", "-c", help="e.g. 'thai'")] = None,
+    meal: Annotated[str | None, typer.Option("--meal", "-m", help="e.g. 'dinner'")] = None,
+    max_minutes: Annotated[
+        int | None, typer.Option("--max-minutes", help="cap on total cook time")
+    ] = None,
+) -> None:
+    """Find recipes trending on the live web right now (Phase-2c, source #2).
+
+    WHAT: builds a TrendingQuery from your options, asks Claude (web-enabled) to find
+          currently-popular recipes on vetted free sites, and prints the validated results.
+    WHY:  the agentic web search is the one non-deterministic step; the allow-list filter
+          and schema validation around it are deterministic. This can take a minute or two.
+    """
+    query = TrendingQuery(theme=theme, cuisine=cuisine, meal_type=meal, max_minutes=max_minutes)
+
+    console.print("[dim]Searching the live web for what's trending… (may take a minute)[/dim]")
+    # The web-enabled LLM step. Any failure becomes a clean one-line message + exit 1:
+    #   TrendingRecipeError - the model returned nothing usable / schema-invalid
+    #   ClaudeCliError      - claude not installed / not logged in / timeout / quota / bad output
+    try:
+        recipes = find_trending(query)
+    except (TrendingRecipeError, ClaudeCliError) as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+    if not recipes:  # empty is a valid outcome, not an error
+        console.print("[yellow]Nothing trending found[/yellow] — try a broader theme.")
+        return
+
+    table = Table(title="Trending recipes")
+    table.add_column("Title")
+    table.add_column("Ready", justify="right")
+    table.add_column("Steps", justify="right")
+    table.add_column("Source")
+    for r in recipes:
+        ready = f"{r.ready_minutes} min" if r.ready_minutes else "-"
+        table.add_row(r.title, ready, str(len(r.steps or [])), r.source_url or "-")
+    console.print(table)
