@@ -34,15 +34,22 @@ trendy search (the primary source only).
 5. *(LLM+deterministic, Stage 4 — RANK)* `rank_recipes(recipes[:MAX_RANK], pantry)` → `list[RecipeFit]`
    ordered fewest-missing (the fan-out is hard-capped at `MAX_RANK=5`). Per-recipe `ResolutionError`
    already swallowed inside `rank_recipes`; transport propagates.
-6. *(deterministic, on demand)* the CLI renders `_present_ranked(fits)` — the ranked table + ⚠ notes +
-   shopping list — then `_ask_cook_choice` → `cook(session, fits[i])` (present-and-confirm).
+6. *(deterministic, on demand)* the CLI renders `_present_ranked(fits)` — the ranked table + each
+   recipe's **link** (research it yourself) + ⚠ notes + shopping list — then `_ask_cook_choice`.
+   Selecting a recipe = **"help me cook this dish"** (`_help_me_cook`): surface the link + numbered
+   steps to cook from, then `cook(session, fits[i])` adjusts the pantry as a footer (present-and-confirm).
 
 ## Output
 - `make_plan(...)` → `PlanResult(intent, source_used, fits, ideas, stages, degraded)`.
-- Ranked: table `Title | Missing | ⚠ | Can make?` (+ per-recipe ⚠ notes + shopping list + cook prompt).
+- Ranked (browse): table `Title | Missing | ⚠ | Can make?`; then per-recipe **🔗 link** + ⚠ notes +
+  shopping list; then the cook prompt.
+- On select ("help me cook"): `Let's cook {title}` + 🔗 link + numbered **Steps**; then a `Pantry updated:`
+  footer (PRESENCE flip + QUANTITY nudge, ledger untouched).
 - Degraded: table `Title | Ready | Source` (unranked ideas, no cook prompt).
 - `-v` → the per-stage trace (`name · outcome · seconds · detail`).
-- `cook(session, fit)` → `CookResult(flipped, to_update)` — PRESENCE flip + QUANTITY nudge, ledger untouched.
+- **Ingredient lines are cleaned before matching** (`resolver._clean_ingredient_lines`): scraped
+  per-item prices (`($0.30)`) and section headers (`Sauce:`, `For serving:`) are stripped, so the
+  match count, shopping list, and ⚠ notes stay honest (review-driven refinement, PR #17).
 
 ## Determinism boundary
 `make_plan` only *sequences* gated tools — no cycle to bound (Principle 10 by construction), `MAX_RANK`
