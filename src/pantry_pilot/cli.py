@@ -12,8 +12,10 @@ from rich.table import Table
 
 from pantry_pilot.core.claude_cli import ClaudeCliError
 from pantry_pilot.core.database import get_session, init_db
+from pantry_pilot.core.spoonacular import SpoonacularError
 from pantry_pilot.models.enums import BaseUnit, Category, StockStatus, TrackingMode, TxnReason
-from pantry_pilot.models.schemas import TrendingQuery
+from pantry_pilot.models.schemas import RecipeFit, TrendingQuery
+from pantry_pilot.pipeline.orchestrator import make_plan
 from pantry_pilot.services.pantry import (
     add_ingredient,
     archive_ingredient,
@@ -266,6 +268,95 @@ def cook_ideas(
         console.print("[yellow]No cookable ideas found[/yellow] — try a broader theme.")
         return
 
+    _present_ranked(fits)  # shared render + cook (R1: `plan` calls the same helper)
+
+
+@app.command()
+def plan(
+    theme: Annotated[
+        str | None, typer.Option("--theme", "-t", help="override the pantry-derived focus")
+    ] = None,
+    cuisine: Annotated[str | None, typer.Option("--cuisine", "-c", help="e.g. 'thai'")] = None,
+    meal: Annotated[str | None, typer.Option("--meal", "-m", help="e.g. 'dinner'")] = None,
+    max_minutes: Annotated[
+        int | None, typer.Option("--max-minutes", help="cap on total cook time")
+    ] = None,
+    verbose: Annotated[
+        bool, typer.Option("--verbose", "-v", help="show the per-stage trace")
+    ] = False,
+) -> None:
+    """Plan tonight's cooking from your pantry (Phase-4 orchestrator, the WAT 'Agent').
+
+    WHAT: reads your pantry, synthesizes what you need, searches the trendy live web for it,
+          ranks the results by what you can cook tonight, and (on confirm) adjusts the pantry.
+    WHY:  the orchestration is deterministic; the LLM only reasons inside the tools it chains.
+          This can take a few minutes. Flags override the pantry-derived trendy search.
+    """
+    # Read the pantry deterministically, then close the DB session BEFORE the slow LLM calls.
+    with get_session() as session:
+        pantry = list_ingredients(session)
+
+    console.print("[dim]Planning from your pantry… this can take a few minutes.[/dim]")
+    # The orchestrator (chains synthesize -> trending -> rank). Any transport error or the
+    # foundational synthesis failure becomes a clean one-line message + exit 1 (never a traceback):
+    #   RecipeSynthesisError - can't tell what you need (content, Stage 1)
+    #   SpoonacularError     - the degraded fallback's transport failed
+    #   ClaudeCliError       - claude missing / not logged in / timeout / quota / bad output
+    try:
+        result = make_plan(
+            pantry, theme=theme, cuisine=cuisine, meal=meal, max_minutes=max_minutes
+        )
+    except (RecipeSynthesisError, SpoonacularError, ClaudeCliError) as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+    if verbose:  # the full per-stage trace (post-hoc in v1): name · outcome · seconds · detail
+        for s in result.stages:
+            console.print(f"[dim]{s.name} · {s.outcome} · {s.seconds}s · {s.detail or ''}[/dim]")
+
+    if result.degraded:  # fell back to unranked Spoonacular ideas — NO cook prompt (no lines)
+        console.print(
+            "[yellow]Couldn't rank by your pantry[/yellow] "
+            "(no trendy recipes with ingredients) — here are some ideas."
+        )
+        if not result.ideas:  # both trending and fallback empty — friendly, not an error
+            console.print("[yellow]Nothing found[/yellow] — try a broader theme.")
+            return
+        table = Table(title="Recipe ideas")
+        for column in ("Title", "Ready", "Source"):
+            table.add_column(column)
+        for r in result.ideas:
+            ready = f"{r.ready_minutes} min" if r.ready_minutes else "-"
+            table.add_row(r.title, ready, r.source_url or "-")
+        console.print(table)
+        return
+
+    if not result.fits:  # ranked path but nothing rankable — friendly, no prompt
+        console.print("[yellow]No cookable ideas found[/yellow] — try a broader theme.")
+        return
+
+    _present_ranked(result.fits)  # shared render + cook (R1)
+
+
+def _ask_cook_choice(n: int) -> int | None:
+    """1-based prompt -> 0-based index, or None to skip. EOF / empty / bad input -> None."""
+    try:
+        raw = input(f"Cook one now? [1-{n}, or Enter to skip]: ").strip()
+    except EOFError:  # no TTY / piped / CliRunner with no input
+        return None
+    if not raw.isdigit():
+        return None
+    i = int(raw)
+    return i - 1 if 1 <= i <= n else None
+
+
+def _present_ranked(fits: list[RecipeFit]) -> None:
+    """Render the ranked table + per-recipe ⚠ notes + shopping list, then the non-blocking
+    cook prompt (present-and-confirm). Shared by `cook-ideas` and `plan` (R1 — no copy-paste).
+
+    Binding the cook return as `cook_result` (not `result`) keeps callers free to hold their own
+    `result` (the `plan` command's PlanResult) without a naming collision.
+    """
     table = Table(title="What can I cook tonight?")
     for column in ("Title", "Missing", "⚠", "Can make?"):
         table.add_column(column)
@@ -274,7 +365,7 @@ def cook_ideas(
             f.recipe.title,
             str(len(f.missing)),
             str(len(_uncertain(f))),
-            "✓" if not f.missing else "✗",
+            "✓" if not f.missing else "✗",  # "Can make?" is derived (not a field on RecipeFit)
         )
     console.print(table)
 
@@ -289,22 +380,10 @@ def cook_ideas(
     choice = _ask_cook_choice(len(fits))  # EOF / empty / out-of-range -> None (skip)
     if choice is not None:
         with get_session() as session:
-            result = cook(session, fits[choice])
+            cook_result = cook(session, fits[choice])
         console.print(f"\n[green]Cooked[/green] {fits[choice].recipe.title}.")
-        for flip in result.flipped:
+        for flip in cook_result.flipped:
             console.print(f"  {flip}")
-        if result.to_update:
-            used = ", ".join(f"`pantry use {n} <amt>`" for n in result.to_update)
+        if cook_result.to_update:
+            used = ", ".join(f"`pantry use {n} <amt>`" for n in cook_result.to_update)
             console.print(f"Used (update by hand): {used}")
-
-
-def _ask_cook_choice(n: int) -> int | None:
-    """1-based prompt -> 0-based index, or None to skip. EOF / empty / bad input -> None."""
-    try:
-        raw = input(f"Cook one now? [1-{n}, or Enter to skip]: ").strip()
-    except EOFError:  # no TTY / piped / CliRunner with no input
-        return None
-    if not raw.isdigit():
-        return None
-    i = int(raw)
-    return i - 1 if 1 <= i <= n else None
