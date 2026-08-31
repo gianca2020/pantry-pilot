@@ -100,11 +100,22 @@ CLAUDE_WEB_TIMEOUT_S = 180   # agentic: multiple tool turns
 def run_claude_web(prompt: str, schema: dict[str, object], *, system: str) -> dict[str, object]:
     argv = ["claude","-p","--output-format","json","--json-schema", json.dumps(schema),
             "--model","opus","--append-system-prompt", system,
-            "--tools","WebSearch WebFetch"]                      # tools ON (exact value confirmed in build spike)
+            "--tools","WebSearch,WebFetch",                     # tools AVAILABLE (comma-list)
+            "--allowedTools","WebSearch WebFetch"]              # tools AUTO-APPROVED in headless -p
     # subprocess.run(argv, input=prompt, capture_output=True, text=True,
     #   timeout=CLAUDE_WEB_TIMEOUT_S, env=_scrubbed_env(), cwd=_repo_root(), check=False)
     # failure -> ClaudeCliError using the EXACT mapping table in §2; json.loads(stdout) -> envelope dict
 ```
+
+**Build-spike findings (2026-08-30, confirmed on the installed CLI — implemented in `core/claude_web.py`):**
+`--tools "WebSearch WebFetch"` (space-*joined*, one arg) does NOT enable web — the CLI reads it as a
+single bogus tool name (0 web requests). And in headless `-p` mode `--tools` alone only makes tools
+*available*; the permission layer still auto-DENIES them (still 0 web requests → empty results). The
+confirmed-working combo is `--tools "WebSearch,WebFetch"` (comma-list) **plus**
+`--allowedTools "WebSearch WebFetch"` (auto-approve). Measured: ~120 s, ~14 turns, **$0 real** on the
+subscription (`ANTHROPIC_API_KEY` scrubbed); `CLAUDE_WEB_TIMEOUT_S = 180` is adequate. Claude Code's
+`WebSearch`/`WebFetch` are **client-side** tools (never touch `server_tool_use`), which is why the
+offline fake-`ClaudeRunner` test strategy is fully faithful.
 
 ### 4.3 Output JSON contract
 ```python

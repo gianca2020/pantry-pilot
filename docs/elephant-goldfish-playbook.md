@@ -148,6 +148,29 @@ Adopt this checklist per Phase 2–4 LLM step:
 - **Learning note:** author set out to hand-write the core; on *resume* Claude implemented it at the
   ladder's "code + explanation" rung for PR-style review — learning-first honored, momentum kept.
 
+### 2026-08-30 — Phase 2c: source #2 "what's hot right now" (agentic web retrieval)
+- **Goal:** a second recipe source that finds currently-trending dishes off the live web and validates them
+  into `Recipe`s with ingredients + steps — see ADR 0009 + `workflows/03-trending-retrieval.md` +
+  `docs/design/trending-recipe-source.md`.
+- **🐘 Elephant + 🐠 Goldfish ×3:** design-of-record written in a dedicated design session and Goldfished
+  three times (45%→75%→80%, then reused transport plumbing embedded + `id` handling pinned) before any code.
+- **🎯 Eval criteria first:** good/bad output rubric written in the design (§5) before coding the LLM step.
+- **✂️ Plan/execute split:** fresh build session; `writing-plans` → TDD, a commit per unit.
+- **🔬 Build spike (read-only) caught a design bug:** the design's `--tools "WebSearch WebFetch"` did NOT
+  enable web in headless `-p` — the CLI reads the space-joined arg as one bogus tool name, and even the
+  comma-list is auto-DENIED without `--allowedTools`. Confirmed combo: `--tools "WebSearch,WebFetch"` +
+  `--allowedTools "WebSearch WebFetch"`; ~120 s / ~14 turns / **$0 real** on the subscription. Fixed the
+  design §4.2. A textbook case of *spike-before-you-trust-the-doc*.
+- **Boundary reuse:** `run_claude_web` shares `claude_cli._invoke_claude` byte-identically (DRY); the
+  allow-list (`core/recipe_sources.py`) is the deterministic `_filter` gate (persona steers, filter enforces).
+- **✅ Verification-left:** TDD red→green, **fully offline** (injected fake `ClaudeRunner` + saved fixture);
+  32 new tests (69→101), `mypy --strict` + `ruff` clean. TDD caught a real bug — the `_filter` test built
+  `Recipe(source_url=…)` by field-name, which the `sourceUrl` `validation_alias` silently drops; fixed to
+  build via the alias (mirrors the real `model_validate` flow).
+- **Learning note:** author started the core via the TODO→pseudocode→code ladder; on a time crunch asked
+  Claude to finish it at the "code + explanation" rung for PR-style review — learning-first honored, momentum kept.
+- **Branching:** `dev-feature-6-trending-source` off `main` (design merged via PR #13; Phase 2b via #11).
+
 ---
 
 ## 6. Roadmap — what's next (with rough time estimates)
