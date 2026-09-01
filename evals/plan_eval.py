@@ -9,8 +9,16 @@ WHY   Schema-valid != good end-to-end. The unit tests prove the wiring; this pro
 HOW   `grade(pantry, result)` is a PURE function (offline-checkable) returning
       (criterion, passed, detail) rows; `run_scenario` does the (slow) real call + printing.
 
-Run:  uv run python evals/plan_eval.py            # all scenarios (slow: minutes each)
-      uv run python evals/plan_eval.py ranked     # just the named scenario(s)
+MODEL-CONFIG A/B (ADR 0012 D5): each scenario also runs under two model CONFIGS —
+      `tiered` (the wired Haiku/Haiku/Sonnet defaults, no runners injected) vs `all-opus`
+      (every step forced to Opus) — so a human can compare the deterministic scorecard
+      (quality) AND the per-stage wall-clock (speed) side by side. `grade()` itself is
+      config-agnostic; only which runners `make_plan` gets changes.
+
+Run:  uv run python evals/plan_eval.py                    # all scenarios, both configs
+      uv run python evals/plan_eval.py ranked              # just the named scenario(s)
+      uv run python evals/plan_eval.py --config tiered     # just one config
+      uv run python evals/plan_eval.py ranked --config tiered
 """
 
 from __future__ import annotations
@@ -19,12 +27,25 @@ import sys
 import urllib.parse
 from dataclasses import dataclass
 
+from pantry_pilot.core.claude_cli import claude_runner
+from pantry_pilot.core.claude_web import claude_web_runner
 from pantry_pilot.core.recipe_sources import ALLOW_DOMAINS
 from pantry_pilot.models.enums import BaseUnit, Category, StockStatus, TrackingMode
 from pantry_pilot.models.schemas import PlanResult
 from pantry_pilot.models.tables import Ingredient
 from pantry_pilot.pipeline.orchestrator import make_plan
 from pantry_pilot.services.resolver import _shopping_list, _uncertain
+
+# --- the two model configs under test (ADR 0012 D5): runner-kwargs for `make_plan` ---
+
+CONFIGS: dict[str, dict[str, object]] = {
+    "tiered": {},  # no runners -> make_plan uses the wired defaults (Haiku/Haiku/Sonnet)
+    "all-opus": {
+        "synth_runner": claude_runner("opus"),
+        "trending_fetcher": claude_web_runner("opus"),
+        "rank_runner": claude_runner("opus"),
+    },
+}
 
 # --- fixtures: the §5 seeded pantry, built as plain Ingredient objects (no DB) ---
 
@@ -133,29 +154,41 @@ def _print_subjective(result: PlanResult) -> None:
         print(f"       missing={len(f.missing)} uncertain={len(_uncertain(f))}  have: {have}")
 
 
-def run_scenario(sc: Scenario) -> bool:
-    print(f"\n=== SCENARIO: {sc.name} ===\n  {sc.note}")
+def run_scenario(sc: Scenario, config_name: str, runners: dict[str, object]) -> bool:
+    print(f"\n=== SCENARIO: {sc.name}  [config: {config_name}] ===\n  {sc.note}")
     result = make_plan(sc.pantry, theme=sc.theme, cuisine=sc.cuisine,  # real LLM + web
-                       meal=sc.meal, max_minutes=sc.max_minutes)
+                       meal=sc.meal, max_minutes=sc.max_minutes, **runners)
     rows = grade(sc.pantry, result)
     met = sum(1 for _, ok, _ in rows if ok)
     for crit, ok, detail in rows:
         print(f"  [{'PASS' if ok else 'FAIL'}] {crit}  ({detail})")
     _print_subjective(result)
-    print(f"  SCORE: {met}/{len(rows)} deterministic criteria met")
+    print(f"  SCORE [{config_name}]: {met}/{len(rows)} deterministic criteria met")
+    for s in result.stages:
+        print(f"  STAGE [{config_name}] {s.name}: {s.seconds:.1f}s ({s.outcome})")
     return met == len(rows)
 
 
 def main(argv: list[str]) -> int:
-    wanted = set(argv[1:])
+    args = argv[1:]
+    config_filter: set[str] | None = None
+    if "--config" in args:
+        i = args.index("--config")
+        config_filter = {args[i + 1]}
+        del args[i:i + 2]
+    wanted = set(args)
+
     scenarios = [s for s in _scenarios() if not wanted or s.name in wanted]
+    configs = {n: r for n, r in CONFIGS.items() if not config_filter or n in config_filter}
+
     ok = True
     for sc in scenarios:
-        try:
-            ok = run_scenario(sc) and ok
-        except Exception as exc:  # a harness: report the failure, don't crash the whole run
-            print(f"  ERROR in scenario {sc.name}: {type(exc).__name__}: {exc}")
-            ok = False
+        for config_name, runners in configs.items():
+            try:
+                ok = run_scenario(sc, config_name, runners) and ok
+            except Exception as exc:  # a harness: report the failure, don't crash the whole run
+                print(f"  ERROR in scenario {sc.name} [{config_name}]: {type(exc).__name__}: {exc}")
+                ok = False
     print(f"\n{'ALL GOOD' if ok else 'SOME CRITERIA FAILED — inspect above'}")
     return 0 if ok else 1
 
