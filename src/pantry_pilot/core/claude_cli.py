@@ -89,14 +89,22 @@ def _invoke_claude(argv: list[str], prompt: str, *, timeout: int) -> dict[str, o
     return envelope
 
 
-def run_claude(prompt: str, schema: dict[str, object], *, system: str) -> dict[str, object]:
-    """Invoke `claude -p` headless (tools OFF, deterministic) and return the JSON envelope."""
-    argv = [
-        "claude", "-p",
-        "--output-format", "json",
-        "--json-schema", json.dumps(schema),
-        "--model", "opus",
-        "--append-system-prompt", system,
-        "--tools", "",
-    ]
-    return _invoke_claude(argv, prompt, timeout=CLAUDE_TIMEOUT_S)
+def claude_runner(model: str = "opus") -> ClaudeRunner:
+    """A tools-OFF ClaudeRunner bound to `model`. The model rides in the closure, so the
+    ClaudeRunner seam is unchanged (injected fakes + call sites keep working)."""
+
+    def _run(prompt: str, schema: dict[str, object], *, system: str) -> dict[str, object]:
+        argv = [
+            "claude", "-p",
+            "--output-format", "json",
+            "--json-schema", json.dumps(schema),
+            "--model", model,
+            "--append-system-prompt", system,
+            "--tools", "",
+        ]
+        return _invoke_claude(argv, prompt, timeout=CLAUDE_TIMEOUT_S)
+
+    return _run
+
+
+run_claude: ClaudeRunner = claude_runner()
