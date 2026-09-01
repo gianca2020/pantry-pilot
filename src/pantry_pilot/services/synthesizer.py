@@ -12,7 +12,7 @@ import json
 from pydantic import ValidationError
 
 # ClaudeRunner is the *interface* (a Protocol) our LLM call depends on;
-# run_claude is the real implementation that shells out to `claude -p`.
+# claude_runner(model) builds the real implementation that shells out to `claude -p`.
 from pantry_pilot.core.claude_cli import ClaudeRunner, claude_runner
 from pantry_pilot.core.models import SYNTH_MODEL
 from pantry_pilot.models.schemas import RecipeQuery
