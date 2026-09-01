@@ -15,8 +15,9 @@ trendy search (the primary source only).
 
 ## Inputs
 - The **pantry** — `list_ingredients(session)` → `list[Ingredient]` (session closed BEFORE the slow LLM calls).
-- An authenticated Claude Code CLI (subscription; `ANTHROPIC_API_KEY` scrubbed → $0 marginal). Web ON for
-  trending (`run_claude_web`, 180 s), OFF for synth/rank (`run_claude`, 120 s).
+- An authenticated Claude Code CLI (subscription; `ANTHROPIC_API_KEY` scrubbed → $0 marginal). **Per-step
+  model tiers (ADR 0012):** synth + resolve on **Haiku** (tools OFF, 120 s), trending on **Sonnet** (web ON,
+  180 s) — via the `claude_runner` / `claude_web_runner` factories; injected fakes override in tests.
 - A Spoonacular API key (`PANTRY_SPOONACULAR_API_KEY`, via gitignored `.env`) — used ONLY on the degraded path.
 
 ## Steps (the DAG — design §4.2)
@@ -27,7 +28,8 @@ trendy search (the primary source only).
    keywords → first include).
 3. *(LLM+web, Stage 2 — TRENDING)* `find_trending(tq)` → allow-listed Recipes WITH ingredients + steps.
    Hand-timed so the trace records `seconds` even on degrade. A content `TrendingRecipeError` (or an empty
-   result) **degrades**; transport `ClaudeCliError` propagates.
+   result) **degrades**; a transport **timeout also degrades** (ADR 0012 D4 — a slow search isn't a hard
+   failure); every other transport `ClaudeCliError` propagates.
 4. *(deterministic — DEGRADE, only if nothing rankable)* `find_recipes(query)` (source #1 Spoonacular) →
    unranked **ideas**; returns a `PlanResult(source_used="spoonacular_fallback", degraded=True)` — **no
    cook prompt**. `SpoonacularError` (transport) propagates.
@@ -53,15 +55,17 @@ trendy search (the primary source only).
 
 ## Determinism boundary
 `make_plan` only *sequences* gated tools — no cycle to bound (Principle 10 by construction), `MAX_RANK`
-caps the one fan-out, content→degrade / transport→abort, **no auto-retry**. Every LLM output stays
+caps the one fan-out, content→degrade / transport→abort (except a trending **timeout** → degrade, ADR 0012
+D4), **no auto-retry**. Every LLM output stays
 Pydantic-validated inside its tool; state mutation is exclusively the existing `cook`.
 
 ## Edge cases / failure modes (design §6)
 | Situation | Detection | Result |
 |---|---|---|
 | Trending empty **or** `TrendingRecipeError` (content) | `make_plan` Stage 2 | degrade → unranked Spoonacular ideas (`degraded=True`) |
+| Trending `ClaudeCliError(kind="timeout")` (Stage 2) | `make_plan` Stage 2 | **degrade** → Spoonacular ideas (ADR 0012 D4 — a slow search isn't a hard failure) |
 | `RecipeSynthesisError` (content, Stage 1) | `synthesize` | abort → CLI exit 1 |
-| `ClaudeCliError` (transport, any stage) | the transport | propagate → CLI exit 1 |
+| `ClaudeCliError` (transport — non-timeout, or a synth/rank timeout) | the transport | propagate → CLI exit 1 |
 | `SpoonacularError` (transport, fallback) | `fetch_recipes` | propagate → CLI exit 1 |
 | per-recipe `ResolutionError` mid-rank | `rank_recipes` | swallowed — the rest still rank |
 | >5 trending recipes | `make_plan` | ranked set capped at `MAX_RANK=5` |

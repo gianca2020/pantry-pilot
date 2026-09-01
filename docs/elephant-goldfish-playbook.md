@@ -52,10 +52,10 @@ Legend: ✅ doing it well · ➖ partial · ❌ gap to adopt
 ### From the Eleven Principles (token-efficient companion)
 | # | Principle | Status | Notes for us |
 |---|-----------|:---:|---|
-| 1 | Start with a balanced model, scale up on failure | ❌ | No model-tier discipline yet. Decide a default + when to escalate. |
+| 1 | Start with a balanced model, scale up on failure | ✅ | **Per-step model tiering shipped (ADR 0012, 2026-09-01):** Haiku for synth + resolve, Sonnet for the agentic web search; escalate a step only if the eval A/B regresses. Latency, not cost (flat-rate subscription). |
 | 2 | Use skills/reusable workflows from the start | ➖ | CLAUDE.md governance ✅; packaged, reusable skills ❌. |
 | 3 | Automate with scripts; read-only research *before* writing | ✅ | This session: checked installs & read official docs before acting. |
-| 4 | Delegate output-heavy tasks to sub-agents; reconcile results only | ❌ | Not used yet; candidate for recipe retrieval/parsing research. |
+| 4 | Delegate output-heavy tasks to sub-agents; reconcile results only | ✅ | **First used 2026-09-01:** the ADR-0012 build ran subagent-driven — a Sonnet implementer per unit, Opus orchestrates + reviews each diff, the author reviews the PR. |
 | 5 | Divide & conquer: plan in Elephant, execute in clean Goldfish, checkpoint via commits | ➖ | Small focused commits ✅; explicit plan-session/execute-session split ❌. |
 | 6 | **Shift verification left** (unit/functional early, UI/smoke last) | ✅ | Tests for every module (`test_*.py`), TDD-first. Strong. |
 | 7 | Undo when adrift (revert, don't stack fixes) | ❓ | Not a formalized habit. |
@@ -75,7 +75,7 @@ specific-context, read-only research before acting.
 1. 🐠 **Run the Goldfish test** — after writing a SOP/ADR, open a fresh session, hand it *only* that doc, and ask "could you implement this?" Fix the doc where it stumbles. *(Principle 5 / essay.)* **✅ First done 2026-08-29 — the CLI-boundary design doc, two passes (see session log).**
 2. 🎯 **Co-design eval criteria first** — before coding an LLM step, write down what a good/bad output looks like. *(Principle 6 / essay.)*
 3. ✂️ **Split plan-session from execute-session** — design in one thread, implement in a clean one, checkpoint each with a commit. *(Principle 5 / eleven.)*
-4. 🧮 **Model-tier discipline** — pick a default model; note when to escalate. *(Principle 1 / eleven.)*
+4. ~~🧮 **Model-tier discipline**~~ ✅ — per-step tiers shipped (ADR 0012, 2026-09-01): Haiku synth/resolve, Sonnet trending; eval A/B decides escalation. Delegation (Principle 4) also first used, subagent-driven. *(Principle 1 / eleven.)*
 5. ↩️ **Undo when adrift** — revert instead of stacking corrective prompts. *(Principle 7 / eleven.)*
 
 ---
@@ -281,6 +281,28 @@ Adopt this checklist per Phase 2–4 LLM step:
   rare). The degrade path stays covered by offline unit tests + the eval-harness `degrade` scenario — a
   *spike-tells-you-the-truth* moment about the system's robustness, recorded rather than glossed.
 - **Branching:** built on `dev-feature-9-orchestrator`; one PR bundles design + build; the author merges.
+
+### 2026-09-01 — Model tiering + `plan` timeout resilience (ADR 0012) — first delegated build
+- **Goal:** two things surfaced live-testing PR #17 (issue #18): (1) all LLM steps hardcoded `--model opus`
+  (no model-tier discipline — Principle 1 gap); (2) `pantry plan` kept hitting the 180s trending timeout and
+  aborting. See ADR 0012.
+- **🧮 Model discipline (Principle 1 ➖→✅):** per-step tiers via a **runner factory** (`claude_runner` /
+  `claude_web_runner` bake `--model` into argv; the `ClaudeRunner` seam is unchanged → zero test-fake churn).
+  Policy in `core/models.py`: **Haiku** synth + resolve, **Sonnet** the agentic web search. **Latency, not
+  cost** — inference is flat-rate on the subscription; a faster model is also what attacks the timeout.
+- **🛟 Degrade-on-timeout (ADR 0012 D4, amends D7):** a trending `ClaudeCliError(kind="timeout")` now degrades
+  to Spoonacular ideas instead of aborting; every other transport error still propagates. `pantry plan` never
+  dies with `timed out after 180s`.
+- **🤝 Delegation (Principle 4 ❌→✅) — first use, and a workflow shift:** the author adopted **"AI builds, I
+  review" for the rest of the project.** This build ran **subagent-driven**: a **Sonnet** implementer per unit
+  (TDD + `mypy --strict`/`ruff` gates), **Opus orchestrates + reviews each diff**, the author reviews the PR.
+  4 units (transports+tiers → degrade-on-timeout → eval A/B → docs); each reviewed clean.
+- **🎯 Evals decide the tiers (D5):** `evals/plan_eval.py` gained an A/B dimension (`tiered` vs `all-opus`),
+  printing the deterministic scorecard **and** per-stage wall-clock — the live A/B is the loop-closer that
+  confirms the tiers (or escalates a regressing step).
+- **✅ Verification-left:** TDD throughout; 160 tests green (+10), `mypy --strict` + `ruff` clean.
+- **Proportionate process:** ADR + TDD, **no** Goldfish×3 (smaller than a phase — "scale process to the task").
+- **Branching:** `dev-feature-10-model-tiering` off `main` (PR #17 merged as `7029c10`); focused PR, author merges.
 
 ---
 
