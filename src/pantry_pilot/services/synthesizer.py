@@ -13,7 +13,8 @@ from pydantic import ValidationError
 
 # ClaudeRunner is the *interface* (a Protocol) our LLM call depends on;
 # run_claude is the real implementation that shells out to `claude -p`.
-from pantry_pilot.core.claude_cli import ClaudeRunner, run_claude
+from pantry_pilot.core.claude_cli import ClaudeRunner, claude_runner
+from pantry_pilot.core.models import SYNTH_MODEL
 from pantry_pilot.models.schemas import RecipeQuery
 from pantry_pilot.models.tables import Ingredient
 
@@ -41,7 +42,7 @@ def synthesize_recipe_query(
     """Ask Claude to synthesize a Spoonacular-shaped query from the pantry."""
     # Dependency injection: use the runner passed in (a fake, in tests), otherwise
     # the real one. This is what lets the tests run without ever calling the CLI.
-    runner = runner or run_claude
+    runner = runner or claude_runner(SYNTH_MODEL)
 
     # The instructions Claude gets. The second sentence is the load-bearing rule
     # that keeps include_ingredients honest (no hallucinated, non-pantry items).

@@ -19,7 +19,8 @@ from typing import Literal
 from pydantic import ValidationError
 from sqlmodel import Session
 
-from pantry_pilot.core.claude_cli import ClaudeRunner, run_claude
+from pantry_pilot.core.claude_cli import ClaudeRunner, claude_runner
+from pantry_pilot.core.models import RESOLVE_MODEL
 from pantry_pilot.models.enums import StockStatus, TrackingMode
 from pantry_pilot.models.schemas import (
     CookResult,
@@ -132,7 +133,7 @@ def resolve_recipe(
     `runner` is injectable for deterministic offline tests; production defaults to the plain
     (tools-OFF) transport. Returns one IngredientMatch per line the model resolved.
     """
-    runner = runner or run_claude
+    runner = runner or claude_runner(RESOLVE_MODEL)
     prompt = _to_resolution_prompt(recipe, pantry_names)
     envelope = runner(prompt, RecipeResolution.model_json_schema(), system=_resolver_persona())
     return _parse_resolution(envelope)

@@ -15,20 +15,28 @@ from __future__ import annotations
 
 import json
 
-from pantry_pilot.core.claude_cli import _invoke_claude
+from pantry_pilot.core.claude_cli import ClaudeRunner, _invoke_claude
 
 CLAUDE_WEB_TIMEOUT_S = 180  # agentic: multiple search/fetch turns, so longer than run_claude
 
 
-def run_claude_web(prompt: str, schema: dict[str, object], *, system: str) -> dict[str, object]:
-    """Invoke `claude -p` with web tools ON and return the parsed JSON envelope."""
-    argv = [
-        "claude", "-p",
-        "--output-format", "json",
-        "--json-schema", json.dumps(schema),
-        "--model", "opus",
-        "--append-system-prompt", system,
-        "--tools", "WebSearch,WebFetch",          # tools AVAILABLE (comma-list)
-        "--allowedTools", "WebSearch WebFetch",   # tools AUTO-APPROVED in headless mode
-    ]
-    return _invoke_claude(argv, prompt, timeout=CLAUDE_WEB_TIMEOUT_S)
+def claude_web_runner(model: str = "opus") -> ClaudeRunner:
+    """A web-enabled ClaudeRunner bound to `model`. Mirrors `claude_cli.claude_runner`: the
+    model rides in the closure, so the ClaudeRunner seam is unchanged."""
+
+    def _run(prompt: str, schema: dict[str, object], *, system: str) -> dict[str, object]:
+        argv = [
+            "claude", "-p",
+            "--output-format", "json",
+            "--json-schema", json.dumps(schema),
+            "--model", model,
+            "--append-system-prompt", system,
+            "--tools", "WebSearch,WebFetch",          # tools AVAILABLE (comma-list)
+            "--allowedTools", "WebSearch WebFetch",   # tools AUTO-APPROVED in headless mode
+        ]
+        return _invoke_claude(argv, prompt, timeout=CLAUDE_WEB_TIMEOUT_S)
+
+    return _run
+
+
+run_claude_web: ClaudeRunner = claude_web_runner()

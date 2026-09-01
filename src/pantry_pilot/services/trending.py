@@ -15,7 +15,8 @@ from typing import Literal
 from pydantic import ValidationError
 
 from pantry_pilot.core.claude_cli import ClaudeRunner
-from pantry_pilot.core.claude_web import run_claude_web
+from pantry_pilot.core.claude_web import claude_web_runner
+from pantry_pilot.core.models import TRENDING_MODEL
 from pantry_pilot.core.recipe_sources import ALLOW_DOMAINS, BLOCK_DOMAINS
 from pantry_pilot.models.schemas import Recipe, TrendingQuery, TrendingResults
 
@@ -113,7 +114,7 @@ def find_trending(
     `fetcher` and `month` are injectable for deterministic offline tests; production defaults to
     the web-enabled transport and the current month. Empty results are NOT an error -> [].
     """
-    fetcher = fetcher or run_claude_web
+    fetcher = fetcher or claude_web_runner(TRENDING_MODEL)
     month = month or date.today().strftime("%Y-%m")
     prompt = _to_search_terms(query, month=month)
     envelope = fetcher(prompt, TrendingResults.model_json_schema(), system=_persona())
