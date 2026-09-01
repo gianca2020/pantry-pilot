@@ -171,9 +171,27 @@ def test_make_plan_degrades_on_trending_content_error() -> None:
     assert plan.degraded is True and plan.stages[1].outcome == "degraded"
 
 
-def test_make_plan_propagates_transport_error() -> None:
+def test_make_plan_degrades_on_trending_timeout() -> None:
     def _boom(prompt: str, schema: dict[str, object], *, system: str) -> dict[str, object]:
-        raise ClaudeCliError("timed out", kind="timeout")
+        raise ClaudeCliError("timed out after 180s", kind="timeout")
+
+    plan = make_plan(
+        _pantry(),
+        synth_runner=_synth_runner(),
+        trending_fetcher=_boom,
+        spoon_fetcher=_spoon_fetcher([{"id": 1, "title": "Fallback Stew"}]),
+    )
+    assert plan.degraded is True
+    assert plan.source_used == "spoonacular_fallback"
+    assert plan.fits == [] and plan.ideas != []
+    trending_stage = next(s for s in plan.stages if s.name == "trending")
+    assert trending_stage.outcome == "degraded"
+    assert trending_stage.detail is not None and "timeout" in trending_stage.detail
+
+
+def test_make_plan_propagates_non_timeout_trending_error() -> None:
+    def _boom(prompt: str, schema: dict[str, object], *, system: str) -> dict[str, object]:
+        raise ClaudeCliError("unauthorized", kind="auth")
 
     with pytest.raises(ClaudeCliError):
         make_plan(_pantry(), synth_runner=_synth_runner(), trending_fetcher=_boom)

@@ -17,7 +17,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 
-from pantry_pilot.core.claude_cli import ClaudeRunner
+from pantry_pilot.core.claude_cli import ClaudeCliError, ClaudeRunner
 from pantry_pilot.core.spoonacular import RecipeFetcher
 from pantry_pilot.models.schemas import PlanResult, RecipeQuery, StageTrace, TrendingQuery
 from pantry_pilot.models.tables import Ingredient
@@ -89,12 +89,15 @@ def make_plan(
 ) -> PlanResult:
     """The deterministic pipeline: synthesize -> map -> trending -> rank, Spoonacular on degrade.
 
-    Error policy (the project's two-class split, applied to the chain):
+    Error policy (the project's two-class split, applied to the chain; ADR 0012 D4):
       - Stage 1 RecipeSynthesisError (content) -> propagate (foundational; CLI -> exit 1).
       - Stage 2 TrendingRecipeError (content) OR empty trending -> DEGRADE to unranked ideas.
-      - any transport error (ClaudeCliError / SpoonacularError, any stage) -> propagate.
-    The ONLY try/except here is the Stage-2 TrendingRecipeError -> degrade; everything else
-    surfaces to the CLI, which maps it to a clean one-line message + exit 1.
+      - Stage 2 ClaudeCliError(kind="timeout") -> DEGRADE to unranked ideas (a slow trending
+        search is not a hard failure; the Spoonacular fallback is the safety net).
+      - any OTHER transport error (ClaudeCliError non-timeout / SpoonacularError, any stage)
+        -> propagate.
+    The only try/except here is Stage 2's TrendingRecipeError/timeout -> degrade; everything
+    else surfaces to the CLI, which maps it to a clean one-line message + exit 1.
     """
     stages: list[StageTrace] = []
 
@@ -111,6 +114,10 @@ def make_plan(
         outcome, detail = ("ok", f"{len(recipes)} recipes") if recipes else ("empty", "0 recipes")
     except TrendingRecipeError:  # content failure -> DEGRADE (not abort)
         recipes, outcome, detail = [], "degraded", "content error -> fallback"
+    except ClaudeCliError as exc:  # a SLOW trending search -> degrade; real transport errors abort
+        if exc.kind != "timeout":
+            raise
+        recipes, outcome, detail = [], "degraded", "timeout -> fallback"
     stages.append(StageTrace(name="trending", outcome=outcome,
                              seconds=round(time.monotonic() - start, 1), detail=detail))
 
