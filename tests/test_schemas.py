@@ -9,10 +9,12 @@ from pydantic import ValidationError
 from pantry_pilot.models.schemas import (
     CookResult,
     IngredientMatch,
+    PlanResult,
     Recipe,
     RecipeFit,
     RecipeQuery,
     RecipeResolution,
+    StageTrace,
     TrendingQuery,
     TrendingResults,
 )
@@ -119,3 +121,23 @@ def test_recipe_fit_and_cook_result_shapes() -> None:
     fit = RecipeFit(recipe=Recipe(title="X"), have=[], missing=[])
     assert fit.have == [] and fit.missing == []
     assert CookResult(flipped=["spinach -> low"], to_update=["chicken"]).to_update == ["chicken"]
+
+
+# --- Phase 4 orchestrator I/O models: StageTrace / PlanResult ---
+
+
+def test_stage_trace_defaults() -> None:
+    s = StageTrace(name="synthesize")
+    assert (s.outcome, s.seconds, s.detail) == ("ok", 0.0, None)
+
+
+def test_plan_result_defaults_and_shape() -> None:
+    q = RecipeQuery(include_ingredients=["chicken"], exclude_ingredients=[])
+    p = PlanResult(intent=q, source_used="trending")
+    assert p.fits == [] and p.ideas == [] and p.stages == [] and p.degraded is False
+
+
+def test_plan_result_rejects_unknown_source() -> None:
+    q = RecipeQuery(include_ingredients=["chicken"], exclude_ingredients=[])
+    with pytest.raises(ValidationError):
+        PlanResult(intent=q, source_used="nope")  # type: ignore[arg-type]

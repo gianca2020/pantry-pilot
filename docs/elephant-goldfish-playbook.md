@@ -9,7 +9,7 @@
 > in §3 when planning a feature; log the session in §5; keep §6 (roadmap) honest.
 > This doc is the reminder — if a habit here isn't happening, that's the signal to fix it.
 
-Last updated: **2026-08-30**
+Last updated: **2026-08-31**
 
 ---
 
@@ -61,7 +61,7 @@ Legend: ✅ doing it well · ➖ partial · ❌ gap to adopt
 | 7 | Undo when adrift (revert, don't stack fixes) | ❓ | Not a formalized habit. |
 | 8 | Be specific with context (exact files, inline `// FIX THIS`) | ✅ | This session pointed to `llm.py:11-17`, exact commands. |
 | 9 | Iterate on *rules* (CLAUDE.md/AGENTS.md), not repeated prompts | ✅ | CLAUDE.md + the memory store are exactly this. |
-| 10 | Avoid uncontrolled loops; event-driven, hard stop conditions | ⏳ | N/A until the Phase-4 orchestrator exists — bake it in then. |
+| 10 | Avoid uncontrolled loops; event-driven, hard stop conditions | ✅ | **Verified in code (Phase-4 orchestrator build, 2026-08-31):** deterministic DAG (no loop to bound), `MAX_RANK=5` fan-out cap, content→degrade / transport→abort, no auto-retry — `pipeline/orchestrator.py`, tested in `tests/test_orchestrator.py`. See ADR 0011 + `docs/design/orchestrator.md` §4.6. |
 | 11 | New session per new topic (reduce context bloat) | ➖ | Ad hoc. Pairs naturally with the Goldfish habit. |
 
 ---
@@ -210,6 +210,78 @@ Adopt this checklist per Phase 2–4 LLM step:
   (garlic ok→low) and reported the QUANTITY nudge (`pantry use chicken`) with chicken still **800 g** —
   **ledger untouched** (D4). GOOD vs §5.
 
+### 2026-08-31 — Phase 4: orchestrator DESIGN session (the WAT "Agent") — DESIGN ONLY
+- **Goal:** co-write the design-of-record for `pipeline/orchestrator.py` — the coordinator that chains the
+  Phase 2a–3 tools into one end-to-end pantry→plate flow — see `docs/design/orchestrator.md`. This was a
+  **design-only Elephant session**: no production code; the build is a separate clean execute session.
+- **🐘 Elephant, dedicated:** drove CLAUDE.md §3's four pillars and the ADR-0010-D3 "deferred planning agent"
+  question before drafting. **Central decision — agency:** the orchestrator is a **deterministic pipeline
+  (DAG)**, NOT an LLM control loop; the agency lives in the *tools* it drives (`find_trending` is already a
+  bounded web agent). This satisfies the WAT "Agent" role *and* Principle 10 by construction (no cycle to
+  bound). Decisions D1–D8: trending-primary + Spoonacular fallback; pantry-derived intent (reuse
+  `synthesize` → one `RecipeQuery`, mapped to `TrendingQuery`); new `pantry plan` (present-and-confirm);
+  in-memory `PlanResult`; structured `StageTrace` observability; content→degrade / transport→abort +
+  `MAX_RANK` cap; Tier-2 eval harness.
+- **🎯 Eval criteria first:** good/bad **end-to-end** rubric written in the design (§5) — incl. the degraded
+  (fallback) path — before any code.
+- **🐠 Goldfish ×3 (the gate, run properly):** two **independent** no-context passes (55% / 62%) both failed
+  on the *same* seams — the doc named the render schemas but hid their **fields** behind `…`, and `_timed`'s
+  outcome/detail contract was under-specified. Folded verbatim field lists + exact import paths (§2), a
+  fully-specified `_timed` (§4.2), and an exact CLI render contract (§4.8). A **confirming** pass (82%)
+  caught two real defects — a `result.flipped` vs `cook_result.flipped` **naming collision** and missing
+  `TrendingQuery` field types — folded in. **Final verification pass: 96%, zero blocking gaps.** Every
+  surfaced seam fixed **in the DOC, not the goldfish**.
+- **🧮 Model discipline:** the chained tools keep `--model opus` (unchanged); no new LLM boundary is added —
+  the orchestrator adds *coordination*, and every existing LLM output stays Pydantic-validated in its tool.
+- **📌 Principle 10 designed-in** (see the scorecard flip above): DAG + `MAX_RANK` + content→degrade /
+  transport→abort + no auto-retry, all documented in §4.6.
+- **✂️ Plan/execute split honored:** this was the **plan** session — design doc committed, then STOP. The
+  build is a separate clean execute session (`writing-plans` → TDD) on `dev-feature-9-orchestrator`, where
+  ADR 0011 + SOP 05 + the build's playbook entry will land. Claude opens the PR; the author merges.
+- **Branching:** `dev-feature-9-orchestrator` off `main` (Phase 3 merged via PR #16). Design checkpoint
+  committed on that branch.
+
+### 2026-08-31 — Phase 4: orchestrator BUILD (the WAT "Agent") — EXECUTE session
+- **Goal:** implement the committed design-of-record (`docs/design/orchestrator.md`, Goldfished ×3):
+  `pipeline/orchestrator.py` (`make_plan` DAG + `_to_trending_query` + `_timed` + `MAX_RANK`), the
+  `PlanResult`/`StageTrace` schemas, a `pantry plan` CLI, offline tests, a Tier-2 eval harness — see
+  ADR 0011 + `workflows/05-orchestrator.md`.
+- **✂️ Plan/execute split (clean):** a dedicated execute session — `writing-plans` → `executing-plans`,
+  TDD, a commit per task (schemas → orchestrator → CLI+shared-render → eval harness → docs). Baseline
+  confirmed green (129 tests) before Task 1.
+- **✅ Verification-left:** TDD red→green, **fully offline** (injected fake synth/rank runners +
+  trending/spoon fetchers + plain `Ingredient` objects; `session` fixture only for cook). 18 new tests
+  (129→147), `mypy --strict` + `ruff` clean throughout. Asserts the flow, the map + flag overrides,
+  `_timed` inference, BOTH degrade branches, transport propagation, synthesis abort, and the `MAX_RANK`
+  cap — never timings.
+- **📌 Principle 10 verified in code** (scorecard flipped ➖→✅): DAG (no loop), `MAX_RANK=5` cap,
+  content→degrade / transport→abort, no auto-retry — implemented faithfully, not just designed.
+- **🧮 Model discipline / determinism:** NO new LLM boundary — the orchestrator only *coordinates*; every
+  chained tool keeps `--model opus` and stays Pydantic-validated inside itself; state mutation is only the
+  existing `cook`.
+- **R2 — go/no-go build spike ✅ (read-only, do-FIRST):** graded a real `synthesize → _to_trending_query →
+  find_trending` on the §5 pantry. Intent = *"garlic soy chicken stir fry rice bowl with spinach"* (Asian,
+  main course, ≤40 min) → a genuinely-trendy allow-listed recipe (Half Baked Harvest sesame-ginger chicken
+  fried rice). **GO** — the pantry-derived-intent value holds; it does NOT collapse toward flags-only.
+  (Note: a specific theme can narrow to few results — 1 here; non-blocking.)
+- **R1 — `plan` vs `cook-ideas` overlap:** extracted the shared table/⚠-notes/shopping-list/cook-prompt
+  rendering into `cli._present_ranked`, called by BOTH commands (no copy-paste); binding the cook return as
+  `cook_result` sidesteps the `result.flipped` collision the Goldfish flagged. `cook-ideas` regression
+  tests stay green. *Open question (deferred):* should `plan` eventually supersede `cook-ideas`?
+- **🔬 Learning split:** author took the **fallback** (crunched) — Claude built the conceptual core
+  (`make_plan` flow, the map, the stop conditions, the eval rubric) at the "code + explanation" rung for
+  PR-style review; learning-first honored via review, momentum kept (as in Phase 2b/2c/3).
+- **🔌 Live smoke ✅ (ranked path, loop closed):** seeded a throwaway pantry (temp `PANTRY_DB_PATH`, dev DB
+  untouched); `pantry plan --verbose` → synth 11.6 s / trending 156 s (4 recipes) / rank 117 s (4); `fits`
+  sorted fewest-missing (7/9/10/10), all allow-listed, honest ⚠ ("green onions ≠ bulb onion", "generic vs
+  brown rice"); cooking #1 flipped `garlic`/`soy sauce` OK→LOW + reported QUANTITY nudges
+  (`onion`/`chicken`/`rice`) — **ledger untouched** (3 `initial` txns only, chicken still 800 g). GOOD vs §5.
+- **Honest finding — degrade NOT demoed live:** a gibberish `--theme` did NOT force a degrade — the agentic
+  trending tool robustly returns trendy recipes even for a nonsense theme (empty trending is genuinely
+  rare). The degrade path stays covered by offline unit tests + the eval-harness `degrade` scenario — a
+  *spike-tells-you-the-truth* moment about the system's robustness, recorded rather than glossed.
+- **Branching:** built on `dev-feature-9-orchestrator`; one PR bundles design + build; the author merges.
+
 ---
 
 ## 6. Roadmap — what's next (with rough time estimates)
@@ -224,8 +296,8 @@ so they're padded vs. a pro just shipping. "Session" ≈ one focused ~1–2 hr s
 | ~~**2. Recipe-retrieval tool**~~ ✅ | `services/retrieval.py` + `core/spoonacular.py`: `RecipeQuery` → validated `Recipe`s via complexSearch (`sort=popularity`), offline-tested. ADR 0008 + SOP 02. | *done 2026-08-30* |
 | **3. Recipe parsing** (LLM boundary #2) | LLM: raw recipe text → validated `Recipe` schema. New SOP + eval criteria + Goldfish test first. | **~2–3 sessions (4–6 hr)** |
 | ~~**4. Semantic ingredient resolution**~~ ✅ (LLM boundary #3) | Match recipe ingredient lines ↔ pantry (LLM matches; code decides in-stock/rank/mutate), validated to schema. `services/resolver.py` + `pantry cook-ideas`. ADR 0010 + SOP 04. | *done 2026-08-30 (Phase 3)* |
-| **5. Phase-4 orchestrator** (the WAT "Agent") | `pipeline/orchestrator.py` wires the tools + LLM steps; add hard stop conditions & no uncontrolled loops (Principle 10). | **~3–4 sessions (6–8 hr)** |
-| **6. End-to-end smoke test** | Full `suggest → retrieve → parse → resolve` run; UI/smoke tests last (verification-left). | **~1 session (1–2 hr)** |
+| ~~**5. Phase-4 orchestrator**~~ ✅ (the WAT "Agent") | `pipeline/orchestrator.py` chains the tools into `pantry plan` — deterministic DAG, `MAX_RANK` cap, content→degrade / transport→abort, no loops (Principle 10 verified in code). ADR 0011 + SOP 05. | *done 2026-08-31 (Phase 4)* |
+| **6. End-to-end smoke test** | Full pantry→plate run — **substantially covered by `pantry plan`** (ranked live smoke closed 2026-08-31); remaining: the degraded path live (trending rarely empties) + a broader persona sweep. | **~partial; ~0.5 session** |
 
 **Critical path to a working agent:** steps 2 → 3 → 4 → 5 → 6 ≈ **~20–30 focused hours**,
 spread across sessions, each gated by its own Elephant doc + Goldfish check.

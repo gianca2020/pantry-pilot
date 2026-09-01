@@ -1,15 +1,21 @@
 """Smoke tests for the CLI commands (run offline: no real DB, no network)."""
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+
 import pytest
 from typer.testing import CliRunner
 
 from pantry_pilot.cli import app
 from pantry_pilot.core.claude_cli import ClaudeCliError
 from pantry_pilot.models.schemas import (
+    CookResult,
     IngredientMatch,
+    PlanResult,
     Recipe,
     RecipeFit,
     RecipeQuery,
+    StageTrace,
     TrendingQuery,
 )
 from pantry_pilot.services.resolver import ResolutionError
@@ -164,3 +170,107 @@ def test_ask_cook_choice_parses_and_guards(monkeypatch: pytest.MonkeyPatch) -> N
 
     monkeypatch.setattr("builtins.input", _eof)
     assert _ask_cook_choice(3) is None  # EOF / no TTY -> skip
+
+
+# --- `plan` command (Phase-4 orchestrator; offline: make_plan is monkeypatched) ---
+
+
+def _ranked_plan(*, cookable: bool = False) -> PlanResult:
+    fit = RecipeFit(
+        recipe=Recipe.model_validate({
+            "title": "Garlic Chicken",
+            "sourceUrl": "https://recipetineats.com/garlic-chicken",
+            "steps": ["Sear the chicken until golden.", "Add garlic; simmer in the sauce."],
+        }),
+        have=[IngredientMatch(recipe_ingredient="2 lb chicken", pantry_name="chicken")],
+        missing=[] if cookable else [IngredientMatch(recipe_ingredient="1 cup honey")],
+    )
+    q = RecipeQuery(include_ingredients=["chicken"], exclude_ingredients=[])
+    return PlanResult(
+        intent=q, source_used="trending", fits=[fit],
+        stages=[StageTrace(name="synthesize"), StageTrace(name="trending"),
+                StageTrace(name="rank")],
+    )
+
+
+def _degraded_plan() -> PlanResult:
+    q = RecipeQuery(include_ingredients=["chicken"], exclude_ingredients=[])
+    return PlanResult(
+        intent=q, source_used="spoonacular_fallback", degraded=True,
+        ideas=[Recipe.model_validate({"title": "Idea Soup", "sourceUrl": "https://x.com"})],
+        stages=[StageTrace(name="synthesize"), StageTrace(name="trending"),
+                StageTrace(name="fallback")],
+    )
+
+
+def test_plan_prints_ranked_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("pantry_pilot.cli.init_db", lambda: None)
+    monkeypatch.setattr("pantry_pilot.cli.list_ingredients", lambda *a, **k: [])
+    monkeypatch.setattr("pantry_pilot.cli.make_plan", lambda *a, **k: _ranked_plan())
+    result = CliRunner().invoke(app, ["plan", "-t", "cozy"])  # no stdin -> cook skipped
+    assert result.exit_code == 0
+    assert "Garlic Chicken" in result.output
+
+
+def test_plan_shows_recipe_link_in_browse(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("pantry_pilot.cli.init_db", lambda: None)
+    monkeypatch.setattr("pantry_pilot.cli.list_ingredients", lambda *a, **k: [])
+    monkeypatch.setattr("pantry_pilot.cli.make_plan", lambda *a, **k: _ranked_plan())
+    result = CliRunner().invoke(app, ["plan"])  # browse only, no cook
+    assert result.exit_code == 0
+    assert "recipetineats.com/garlic-chicken" in result.output  # link to research it yourself
+
+
+def test_plan_degraded_prints_ideas_and_no_cook(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("pantry_pilot.cli.init_db", lambda: None)
+    monkeypatch.setattr("pantry_pilot.cli.list_ingredients", lambda *a, **k: [])
+    monkeypatch.setattr("pantry_pilot.cli.make_plan", lambda *a, **k: _degraded_plan())
+    result = CliRunner().invoke(app, ["plan"])
+    assert result.exit_code == 0
+    assert "Idea Soup" in result.output
+    assert "Cook one now" not in result.output  # degraded path has no cook prompt
+
+
+def test_plan_verbose_prints_trace(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("pantry_pilot.cli.init_db", lambda: None)
+    monkeypatch.setattr("pantry_pilot.cli.list_ingredients", lambda *a, **k: [])
+    monkeypatch.setattr("pantry_pilot.cli.make_plan", lambda *a, **k: _ranked_plan())
+    result = CliRunner().invoke(app, ["plan", "-v"])
+    assert result.exit_code == 0
+    assert "synthesize" in result.output  # the per-stage trace
+
+
+def test_plan_cook_path_flips_and_reports(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("pantry_pilot.cli.init_db", lambda: None)
+    monkeypatch.setattr("pantry_pilot.cli.list_ingredients", lambda *a, **k: [])
+    monkeypatch.setattr("pantry_pilot.cli.make_plan", lambda *a, **k: _ranked_plan(cookable=True))
+
+    @contextmanager
+    def _dummy() -> Iterator[None]:
+        yield None
+
+    monkeypatch.setattr("pantry_pilot.cli.get_session", _dummy)
+    monkeypatch.setattr(
+        "pantry_pilot.cli.cook",
+        lambda s, f: CookResult(flipped=["garlic -> low"], to_update=["chicken"]),
+    )
+    result = CliRunner().invoke(app, ["plan"], input="1\n")
+    assert result.exit_code == 0
+    # "help me cook": the selection surfaces the recipe (title + link + steps) to cook from...
+    assert "Let's cook Garlic Chicken" in result.output
+    assert "recipetineats.com/garlic-chicken" in result.output
+    assert "Sear the chicken" in result.output
+    # ...and the pantry update still happens, demoted to a footer.
+    assert "garlic -> low" in result.output
+
+
+def test_plan_error_exits_1(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _boom(*a: object, **k: object) -> PlanResult:
+        raise ClaudeCliError("not logged in", kind="auth")
+
+    monkeypatch.setattr("pantry_pilot.cli.init_db", lambda: None)
+    monkeypatch.setattr("pantry_pilot.cli.list_ingredients", lambda *a, **k: [])
+    monkeypatch.setattr("pantry_pilot.cli.make_plan", _boom)
+    result = CliRunner().invoke(app, ["plan"])
+    assert result.exit_code == 1
+    assert "Error:" in result.output

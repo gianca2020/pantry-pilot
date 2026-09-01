@@ -13,6 +13,7 @@ module's content-level ResolutionError) and the same parse+validate gate pattern
 from __future__ import annotations
 
 import json
+import re
 from typing import Literal
 
 from pydantic import ValidationError
@@ -46,14 +47,37 @@ class ResolutionError(Exception):
         self.kind = kind
 
 
+# A per-ingredient price token some sites embed in the line, e.g. "3 tbsp oyster sauce ($0.30)".
+_PRICE = re.compile(r"\s*\(\$[^)]*\)")
+
+
+def _clean_ingredient_lines(lines: list[str]) -> list[str]:
+    """Strip scraped noise from recipe ingredient lines *before* they become match targets.
+
+    Recipe pages carry two kinds of junk in their ingredient lists that we never want to match,
+    shop for, or count as "missing": per-ingredient price tags (e.g. budgetbytes' "($0.30)") and
+    section headers ("Sauce:", "For serving:"). We drop the price token and skip any header
+    (a line that ends with ':') or blank, so the LLM only ever sees real ingredients — which keeps
+    the match count, the shopping list, and the ⚠ notes honest.
+    """
+    cleaned: list[str] = []
+    for line in lines:
+        line = _PRICE.sub("", line).strip()
+        if not line or line.endswith(":"):  # blank or a section header -> not an ingredient
+            continue
+        cleaned.append(line)
+    return cleaned
+
+
 def _to_resolution_prompt(recipe: Recipe, pantry_names: list[str]) -> str:
     """Build the user prompt: the pantry to match against + the recipe's ingredient lines.
 
     Deterministic and testable — a test asserts every pantry name and every ingredient line
-    appears in the output. Empty pantry -> a clear placeholder; no ingredients -> an empty list.
+    appears in the output. The recipe's ingredient lines are cleaned first (prices/headers
+    stripped) so the model only matches real ingredients. Empty pantry -> a clear placeholder.
     """
     pantry = ", ".join(pantry_names) or "(pantry is empty)"
-    lines = "\n".join(f"- {line}" for line in (recipe.ingredients or []))
+    lines = "\n".join(f"- {line}" for line in _clean_ingredient_lines(recipe.ingredients or []))
     return (
         f"PANTRY ITEMS (match ONLY against these exact names):\n{pantry}\n\n"
         f"RECIPE: {recipe.title}\n"
